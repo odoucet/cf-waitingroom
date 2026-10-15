@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Waiting room dashboard</title>
+<style nonce="{{NONCE}}">
+:root{--bg:#f6f7f9;--fg:#1d2330;--mut:#667085;--card:#fff;--bd:#e3e6eb;--ok:#127a3f;--warn:#a15c00;--bad:#b42318;--c0:#2563eb;--c1:#d97706;--c2:#059669;--c3:#9333ea;--c4:#db2777}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--fg:#e6e9ef;--mut:#98a2b3;--card:#1b2029;--bd:#2c3340;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--c0:#60a5fa;--c1:#fbbf24;--c2:#34d399;--c3:#c084fc;--c4:#f472b6}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
+header{padding:10px 16px;border-bottom:1px solid var(--bd);background:var(--card)}
+.bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.bar+.bar{margin-top:8px}
+h1{font-size:17px;margin:0}h2{font-size:14px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}h3{font-size:12px;margin:14px 0 6px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+main{padding:16px;max-width:1200px;margin:0 auto}section{margin-bottom:22px}
+.mut{color:var(--mut)}.sp{flex:1}.b{display:inline-block;padding:1px 8px;border-radius:9px;border:1px solid currentColor;font-size:12px;margin-right:4px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.tiles,.charts{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.charts{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.tile,.chart,.box{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:10px 12px}
+.k{color:var(--mut);font-size:12px}.v{font-size:22px;font-variant-numeric:tabular-nums}.s{color:var(--mut);font-size:12px}
+svg{width:100%;height:64px;display:block;margin:6px 0;touch-action:pan-y}polyline,line{fill:none;stroke-width:1.6;vector-effect:non-scaling-stroke}line{stroke:var(--mut);stroke-width:1}
+.l0{stroke:var(--c0)}.l1{stroke:var(--c1)}.l2{stroke:var(--c2)}.l3{stroke:var(--c3)}.l4{stroke:var(--c4)}.c0{color:var(--c0)}.c1{color:var(--c1)}.c2{color:var(--c2)}.c3{color:var(--c3)}.c4{color:var(--c4)}
+.lg span{display:inline-block;margin-right:10px;font-size:12px;white-space:nowrap}
+.cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr))}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}td,th{padding:3px 6px;border-bottom:1px solid var(--bd);text-align:left}td.n,th.n{text-align:right}
+.h{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;margin-left:5px;border:1px solid currentColor;border-radius:50%;font-size:10px;font-weight:600;line-height:1;color:var(--mut);cursor:help;vertical-align:1px;text-transform:none;user-select:none}
+.h:hover,.h:focus{color:var(--fg);outline:none}.b .h{color:inherit}.h.lead{margin:0 6px 0 0}
+.tip{position:fixed;z-index:10;max-width:min(340px,calc(100vw - 16px));padding:8px 10px;border-radius:6px;background:var(--fg);color:var(--bg);font-size:12px;line-height:1.4;white-space:pre-line;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none}.tip[hidden]{display:none}
+input,select,textarea{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;min-width:0}
+input[type=number]{width:5.5em}textarea{width:100%;font-family:ui-monospace,monospace;font-size:12px}#pass-url{flex:1}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:6px 0}
+label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--mut)}
+.grp{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}.grp label{flex-direction:row;align-items:center;gap:4px}
+button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}button:disabled{opacity:.5;cursor:default}
+.wl td:last-child{text-align:right}.msg:empty{display:none}.msg{margin:8px 0 0}.msg-ok{color:var(--ok)}.msg-bad{color:var(--bad)}
+.scroll{overflow-x:auto}pre{margin:0;overflow:auto;max-height:45vh;font-size:12px}button,a{color:inherit}button{font:inherit;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:3px 10px;cursor:pointer}
+dialog{padding:0;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--fg);width:min(600px,calc(100vw - 32px));max-height:calc(100vh - 48px)}dialog::backdrop{background:rgba(0,0,0,.4)}
+.dlg{padding:14px 16px}.dh{display:flex;align-items:center;gap:8px;margin-bottom:8px}.dh h2{margin:0;flex:1}
+</style>
+</head>
+<body>
+<header>
+<div class="bar"><h1>Waiting room <span id="room"></span></h1><span id="badges"></span><span class="sp"></span><span class="mut" id="meta"></span><button id="auto" type="button">Auto-refresh: on</button></div>
+<div class="bar" id="controls" hidden>
+<span class="grp" role="group" aria-label="Mode"><button type="button" data-mode="on">On</button><button type="button" data-mode="queue_all">Queue all</button><button type="button" data-mode="off">Off</button><button type="button" id="pause">Pause admissions</button><span class="h" tabindex="0" role="button" data-h="Mode control">?</span></span>
+<form id="f-rate" class="grp"><label>R <input name="admissionsPerMinute" type="number" min="1" step="1" required aria-label="Admission rate R, per minute"> /min</label><label>D <input name="sessionMinutes" type="number" min="1" step="1" required aria-label="Session duration D, in minutes"> min</label><button>Apply</button><span class="s" id="reff"></span><span class="h" tabindex="0" role="button" data-h="Rate and session">?</span></form>
+<span class="sp"></span>
+<span class="grp"><button type="button" data-open="d-wl">Whitelist <span id="wl-n" class="mut"></span></button><button type="button" data-open="d-cfg">Settings</button><button type="button" data-open="d-pass">Signed link</button></span>
+</div>
+<p id="msg" class="s msg" role="status"></p>
+</header>
+<main><div id="main"><p class="mut">Loading…</p></div></main>
+<dialog id="d-wl"><div class="dlg">
+<div class="dh"><h2>Whitelist<span class="h" tabindex="0" role="button" data-h="Whitelist control">?</span></h2><button type="button" data-close aria-label="Close">×</button></div>
+<div id="wl"></div>
+<form id="f-wl" class="row"><label>IP or CIDR<input name="cidr" placeholder="198.51.100.0/24" required></label><label>Label<input name="label" placeholder="office" maxlength="32" required></label><button>Add</button></form>
+<p class="s msg" role="status"></p>
+</div></dialog>
+<dialog id="d-cfg"><div class="dlg">
+<div class="dh"><h2>Settings<span class="h" tabindex="0" role="button" data-h="Other settings">?</span></h2><button type="button" data-close aria-label="Close">×</button></div>
+<form id="f-cfg"><textarea name="patch" rows="3" placeholder='{"brake": {"enabled": true}}' required aria-label="JSON patch"></textarea><div class="row"><button>Apply</button></div></form>
+<p class="s msg" role="status"></p>
+<h3>Current configuration</h3><pre id="cfg"></pre>
+</div></dialog>
+<dialog id="d-pass"><div class="dlg">
+<div class="dh"><h2>Signed link<span class="h" tabindex="0" role="button" data-h="Signed link">?</span></h2><button type="button" data-close aria-label="Close">×</button></div>
+<form id="f-pass" class="row"><label>Site hostname<input name="host" placeholder="shop.example.com" required></label><label>Path<input name="path" value="/" required></label><label>Label<input name="label" placeholder="partner" maxlength="32" required></label><label>Valid for<select name="ttl"><option value="3600">1 hour</option><option value="86400" selected>1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></label><button>Create link</button></form>
+<div id="pass-out" class="row" hidden><input id="pass-url" readonly aria-label="Signed link"><button type="button" id="pass-copy">Copy</button></div>
+<p class="s msg" role="status"></p>
+</div></dialog>
+<script nonce="{{NONCE}}">{{SCRIPT}}</script>
+</body>
+</html>

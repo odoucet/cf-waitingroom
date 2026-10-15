@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// Test configuration (vitest), for the edge and coordinator integration tests.
+{
+  "name": "waitingroom-test",
+  "main": "../src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": { "bindings": [{ "name": "COORDINATOR", "class_name": "Coordinator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Coordinator"] }],
+  "vars": {
+    "ROOM_ID": "test",
+    "FAIL_MODE": "open",
+    "EARLY_EXIT_EXTENSIONS": "css,js,png",
+    "EARLY_EXIT_PREFIXES": "/static/",
+    "BOT_HEADER": "x-wr-bot",
+    "BYPASS_HEADER": "x-wr-bypass",
+    "LOG_SAMPLE_RATE": "0",
+    "COORDINATOR_TIMEOUT_MS": "1000",
+    "LOCATION_HINT": "weur",
+    // Reservation checks off by default; the tests that need them enable them.
+    "WR_BOOTSTRAP_CONFIG": "{\"admissionsPerMinute\":60,\"sessionMinutes\":10,\"reserveMinAgeSec\":0,\"reservePowBits\":0}"
+  }
+}

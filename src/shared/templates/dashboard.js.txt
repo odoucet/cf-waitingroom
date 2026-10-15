@@ -1,0 +1,416 @@
+// SPDX-License-Identifier: Apache-2.0
+// Dashboard logic: fetch the JSON every 10 s while visible and render it (no external resource).
+(function () {
+  "use strict";
+  var REFRESH_MS = 10000;
+  var auto = true;
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(v) { return String(v).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; }); }
+  // Help texts, keyed by the label they explain. Written for someone who follows the room
+  // without knowing its internals; technical figures say so.
+  var H = {
+    "mode": "on: normal operation.\noff: waiting room disabled, everyone goes straight to the site.\nqueue_all: every new visitor goes through the queue.",
+    "paused": "Admissions are paused: nobody new enters the site. Visitors already inside keep browsing; the queue resumes where it was.",
+    "open": "No queue right now: new visitors enter the site directly.",
+    "queueing": "New visitors see the waiting page and get a place in the queue, with the exact time they will enter.",
+    "brake": "Safety brake on the admission rate: the estimated number of active users is above the brake threshold.\n1: no braking.\n0.5: rate halved.",
+    "stale": "The last refresh failed. The figures shown are those of the time indicated; the page keeps retrying.",
+    "Now": "Current state of the room. Figures refresh every 10 seconds.",
+    "Utilisation (1 min)": "Visitors admitted over the last minute compared with the admission rate. Near 100 %, the site takes in as many new visitors as it accepts, and newcomers start to queue.\nCalm: plenty of room left.",
+    "Current wait": "How long a visitor arriving now would wait before entering the site.\nNone: no queue.\nAfter the pause: admissions are paused; the wait once they resume, the pause itself not included.",
+    "Waiting tickets": "Visitors holding a place in the queue who have not entered the site yet.",
+    "Active users (est.)": "Estimated number of visitors browsing the site: sessions seen within the session duration. It reads higher than the number of people actually online.\nWhitelisted: visitors of the whitelist (partners, office, search engines), counted apart.",
+    "Absence ratio": "Share of queue places whose visitor never came back to use them (tab closed, gave up). The room lets in slightly more people to make up for them, up to the overbooking cap.",
+    "Isolates (1 min)": "Technical: Cloudflare server instances running the waiting room that reported in the last minute. Grows with traffic.\nLeased slots: admission slots handed in advance to these instances and not reported as used yet; they let visitors in without a central call.",
+    "Last hour, per minute": "Per-minute history of the last hour; hover or tap a chart for the values of a minute.",
+    "Admissions": "New visitors let into the site per minute.\nOpen: entered directly, without waiting.\nFrom queue: entered after waiting their turn.",
+    "Queue": "Tickets: places in the queue handed out.\nWaiting pages: waiting pages shown.\nNo-shows: places never used by their visitor.",
+    "Durable Object requests": "Technical: calls to the central coordinator, by kind. They drive the Cloudflare cost.\nAlarm: the coordinator writing its state, a few seconds after a change.",
+    "Whitelist and failures": "Bypass: visitors let through without queue (search engines, partners, signed links).\nFail-open: visitors let through because the coordinator could not be reached.\nReplays: attempts to reuse a copied queue ticket, refused.",
+    "SQLite rows written": "Technical: writes to the coordinator storage, counted in the Cloudflare bill.",
+    "Admissions, open (lease)": "Visitors let in directly, without waiting.",
+    "Admissions, from queue": "Visitors let in after waiting their turn in the queue.",
+    "Tickets reserved": "Places in the queue handed out.",
+    "Tickets never used": "Places in the queue whose visitor did not come back in time to use them.",
+    "Replays rejected": "Attempts to reuse a queue ticket copied to another browser or device. Refused.",
+    "Waiting pages": "Number of times the waiting page was shown.",
+    "Provisional cookies issued / claimed": "On a first visit the site sets a temporary cookie.\nClaimed: the visitor came back with it, which shows a real browser rather than a robot that ignores cookies.",
+    "Bypass bot / ip / header / link": "Requests let through without queue.\nBot: verified search engines.\nIP: whitelisted IP addresses.\nHeader: server-to-server calls.\nLink: signed links handed out by the operator.",
+    "Reservations refused too early / proof of work / busy": "Requests for a queue place that were refused.\nToo early: made too soon after the first visit.\nProof of work: without the small computation the waiting page performs (typical of robots).\nBusy: the coordinator was busy; the page retries by itself.",
+    "Fail-open": "Visitors let through without control because the coordinator could not be reached.",
+    "Coordinator errors timeout / overloaded / other": "Technical: failed calls to the coordinator, by cause, all server instances together.",
+    "Lease slots granted / used / returned / expired": "Technical: admission slots handed in advance to server instances, and what became of them.",
+    "Revoked tickets / pending nonces": "Technical.\nRevoked tickets: queue tickets cancelled after a copy was detected.\nPending nonces: one-time identifiers kept to refuse duplicate reservations.",
+    "DO requests": "Calls to the coordinator.\nIncluded: 1 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
+    "DO duration (GB-s)": "Time the coordinator stays active, in memory × seconds.\nIncluded: 400,000 GB-s a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
+    "SQLite rows": "Writes to the coordinator storage.\nIncluded: 50 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
+    "DO requests by kind and mode (total)": "Technical: calls to the coordinator since the room was created, by kind and by room state.",
+    "Isolates seen in the last 10 minutes": "Technical: server instances that reported recently.\nLast report: time since their last call.\nLease: admission slots they hold in advance.",
+    "This edge isolate": "Technical: the server instance that answered this page, in the Cloudflare data center closest to you. Useful for diagnosis only; another refresh may land on another instance.",
+    "Snapshot": "Copy of the room state this instance works with, and its age. Refreshed every few seconds.",
+    "Local lease": "Admission slots this instance holds in advance.",
+    "Pending deltas": "Events of this instance not yet reported to the coordinator.",
+    "Snapshot cache hits / misses": "How often this instance found the room state in the data center cache instead of asking the coordinator.",
+    "Coordinator errors (this isolate) timeout / overloaded / other": "Failed calls to the coordinator from this instance, by cause.",
+    "Revoked tickets known / whitelist entries": "Cancelled queue tickets and whitelist entries known to this instance.",
+    "Mode control": "Every change applies at once in the coordinator and reaches every Cloudflare data center within 20 to 60 seconds, without deployment; every change is logged.\nOn: normal operation.\nQueue all: every new visitor goes through the queue, even when there is room.\nOff: kill switch, the waiting room lets everyone through.\nPause: nobody new enters, visitors already inside keep browsing; Resume shifts the queue by the length of the pause.",
+    "Rate and session": "R: admission rate, new visitors let in per minute; the main setting. Lower it to protect the origin; never redeploy for that.\nEffective: the rate actually used for the queue, a little higher to make up for people who leave the queue before their turn, lower if the safety brake is on.\nD: session duration, a visitor keeps access as long as they load a page at least every D minutes.",
+    "Whitelist control": "IP addresses or ranges (CIDR) that never queue: office, partners, monitoring.\nAt most 1,000 entries, no range wider than /8 (IPv4) or /32 (IPv6).",
+    "Signed link": "A link that lets its holder skip the queue on the given site hostname until it expires. Give it to a partner or a support agent; anyone holding it can use it.",
+    "Other settings": "Any setting, as a JSON patch: only the keys given change; invalid values are refused. The keys are listed in docs/configuration.md.\nExamples:\n{\"brake\": {\"enabled\": true}}\n{\"reserveVerifier\": \"turnstile\", \"turnstileSiteKey\": \"...\"}"
+  };
+  // Help icon: the text is shown by the single tooltip below (hover, focus or tap).
+  function tip(key, cls) {
+    return H[key] ? '<span class="h' + (cls ? " " + cls : "") + '" tabindex="0" role="button" data-h="' + esc(key) + '" aria-label="' + esc(H[key]) + '">?</span>' : "";
+  }
+  function num(v, d) {
+    if (typeof v !== "number" || !isFinite(v)) return "–";
+    var a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + " M";
+    if (a >= 1e4) return (v / 1e3).toFixed(1) + " k";
+    return d ? v.toFixed(d) : String(Math.round(v));
+  }
+  function pct(v) { return typeof v === "number" ? (v * 100).toFixed(1) + " %" : "–"; }
+  function usd(v) { return typeof v === "number" ? "$" + v.toFixed(2) : "–"; }
+  function dur(s) { return s < 120 ? Math.round(s) + " s" : s < 7200 ? Math.round(s / 60) + " min" : (s / 3600).toFixed(1) + " h"; }
+  function hhmm(t) { return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  function lab(m, name, key, val) {
+    for (var i = 0; i < m.labelled.length; i++) { var l = m.labelled[i]; if (l.name === name && l.labels[key] === val) return l.value; }
+    return 0;
+  }
+  // Wait of a visitor arriving now, as shown in the tile and in the tab title.
+  function wait(c) {
+    var s = c.state, lag = c.metrics.gauges.wr_cursor_lag_seconds;
+    if (s.mode === "off") return "off";
+    return lag > 0 ? dur(lag) : "none";
+  }
+  function tiles(list) {
+    return '<div class="tiles">' + list.map(function (t) {
+      return '<div class="tile"><div class="k">' + esc(t[0]) + tip(t[0]) + '</div><div class="v">' + esc(t[1]) + "</div>" + (t[2] ? '<div class="s">' + esc(t[2]) + "</div>" : "") + "</div>";
+    }).join("") + "</div>";
+  }
+  // lead: the help icon of each row comes before its label.
+  function table(head, rows, lead) {
+    var h = head ? "<tr>" + head.map(function (c, i) { return "<th" + (i ? ' class="n"' : "") + ">" + esc(c) + "</th>"; }).join("") + "</tr>" : "";
+    return '<div class="scroll"><table>' + h + rows.map(function (r) {
+      return "<tr>" + r.map(function (c, i) {
+        if (i) return '<td class="n">' + esc(c) + "</td>";
+        return "<td>" + (lead ? tip(c, "lead") + esc(c) : esc(c) + tip(c)) + "</td>";
+      }).join("") + "</tr>";
+    }).join("") + "</table></div>";
+  }
+  function box(title, inner, key) { return '<div class="box"><h2>' + esc(title) + tip(key || title) + "</h2>" + inner + "</div>"; }
+  // Per-minute series: the last value is the current (partial) minute; only complete minutes
+  // are plotted. Each chart keeps its values for the hover tooltip.
+  var charts = {};
+  function chart(hist, at, title, keys, labels) {
+    var max = 1, n = 0, len = 0;
+    var series = keys.map(function (k) { var a = hist[k] || []; len = a.length; return a.slice(0, -1); });
+    series.forEach(function (s) { n = s.length; s.forEach(function (v) { if (v > max) max = v; }); });
+    if (n < 2) return "";
+    charts[title] = { labels: labels, series: series, n: n, t0: (Math.floor(at / 60000) - (len - 1)) * 60000 };
+    var lines = series.map(function (s, i) {
+      var pts = s.map(function (v, j) { return (j * 300 / (n - 1)).toFixed(1) + "," + (62 - v * 60 / max).toFixed(1); }).join(" ");
+      return '<polyline class="l' + i + '" points="' + pts + '"/>';
+    }).join("");
+    var legend = series.map(function (s, i) {
+      var sum = 0;
+      s.forEach(function (v) { sum += v; });
+      return '<span class="c' + i + '">' + esc(labels[i]) + ": " + num(s[n - 1] || 0) + "/min · 1 h " + num(sum) + "</span>";
+    }).join("");
+    return '<div class="chart" data-c="' + esc(title) + '"><div class="k">' + esc(title) + tip(title) + " <span class=\"mut\">(max " + num(max) + "/min)</span></div>" +
+      '<svg viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="' + esc(title) + '">' + lines +
+      '<line x1="0" x2="0" y1="0" y2="64" visibility="hidden"/></svg><div class="lg">' + legend + "</div></div>";
+  }
+  function badges(c) {
+    var s = c.state, b = [];
+    if (s.mode !== "on") b.push('<span class="b ' + (s.mode === "off" ? "warn" : "bad") + '">mode ' + esc(s.mode) + tip("mode") + "</span>");
+    if (s.paused) b.push('<span class="b bad">paused' + tip("paused") + "</span>");
+    b.push(s.open ? '<span class="b ok">open' + tip("open") + "</span>" : '<span class="b warn">queueing' + tip("queueing") + "</span>");
+    if (s.brakeFactor < 1) b.push('<span class="b warn">brake ×' + num(s.brakeFactor, 2) + tip("brake") + "</span>");
+    return b.join("");
+  }
+  function coordinator(c) {
+    var s = c.state, m = c.metrics, g = m.gauges, k = m.counters, h = c.history, cfg = s.config || {};
+    charts = {};
+    var html = "<section><h2>Now" + tip("Now") + "</h2>" + tiles([
+      ["Current wait", wait(c), s.paused && s.mode !== "off" ? "after the pause" : ""],
+      ["Waiting tickets", num(s.waitingTickets), "next ticket #" + s.nextTicketNo],
+      ["Utilisation (1 min)", pct(g.wr_utilization), g.wr_calm ? "calm" : ""],
+      ["Active users (est.)", num(s.activesEstimate), "+ " + num(g.wr_active_users_whitelisted) + " whitelisted"],
+      ["Absence ratio", pct(s.absenceRatio), "overbooking cap ×" + num(cfg.overbookCap, 2)],
+      ["Isolates (1 min)", num(g.wr_coordinator_isolates), num(s.outstandingLeases) + " leased slots"]
+    ]) + "</section>";
+    html += "<section><h2>Last hour, per minute" + tip("Last hour, per minute") + '</h2><div class="charts">' +
+      chart(h, c.at, "Admissions", ["adm_lease", "adm_ticket"], ["open (lease)", "from queue"]) +
+      chart(h, c.at, "Queue", ["reserved", "waiting", "absent"], ["tickets", "waiting pages", "no-shows"]) +
+      chart(h, c.at, "Durable Object requests", ["req_flush", "req_reserve", "req_snapshot", "req_admin", "req_alarm"], ["flush", "reserve", "snapshot", "admin", "alarm"]) +
+      chart(h, c.at, "Whitelist and failures", ["bypass", "fail_open", "replays"], ["bypass", "fail-open", "replays"]) +
+      chart(h, c.at, "SQLite rows written", ["rows"], ["rows"]) +
+      "</div></section>";
+    var reqRows = [];
+    m.labelled.forEach(function (l) { if (l.name === "wr_coordinator_requests_total") reqRows.push([l.labels.kind + " · " + l.labels.mode, num(l.value)]); });
+    html += '<section><div class="cols">' +
+      '<div class="box"><h2>Totals</h2>' + table(null, [
+        ["Admissions, open (lease)", num(lab(m, "wr_admissions_total", "path", "lease"))],
+        ["Admissions, from queue", num(lab(m, "wr_admissions_total", "path", "ticket"))],
+        ["Tickets reserved", num(k.wr_tickets_reserved_total)],
+        ["Tickets never used", num(k.wr_tickets_absent_total)],
+        ["Replays rejected", num(k.wr_replays_rejected_total)],
+        ["Waiting pages", num(k.wr_waiting_pages_total)],
+        ["Provisional cookies issued / claimed", num(lab(m, "wr_provisional_total", "state", "issued")) + " / " + num(lab(m, "wr_provisional_total", "state", "claimed"))],
+        ["Bypass bot / ip / header / link", ["bot", "ip", "header", "pass"].map(function (x) { return num(lab(m, "wr_bypass_total", "kind", x)); }).join(" / ")],
+        ["Reservations refused too early / proof of work / busy", ["too_early", "pow", "busy"].map(function (x) { return num(lab(m, "wr_reserve_refused_total", "reason", x)); }).join(" / ")],
+        ["Fail-open", num(k.wr_fail_open_total)],
+        ["Coordinator errors timeout / overloaded / other", ["timeout", "overloaded", "other"].map(function (x) { return num(lab(m, "wr_coordinator_errors_total", "kind", x)); }).join(" / ")],
+        ["Lease slots granted / used / returned / expired", ["granted", "used", "returned", "expired"].map(function (x) { return num(lab(m, "wr_lease_slots_total", "state", x)); }).join(" / ")],
+        ["Revoked tickets / pending nonces", num(c.revoked) + " / " + num(c.pendingNonces)]
+      ]) + "</div>" +
+      '<div class="box"><h2>Monthly projection (last hour × 30 days)</h2>' + table(["Item", "Usage", "Included", "Beyond"], [
+        ["DO requests", num(lab(m, "wr_usage_projection", "item", "do_requests")), "1 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_requests"))],
+        ["DO duration (GB-s)", num(lab(m, "wr_usage_projection", "item", "do_gb_seconds")), "400 k", usd(lab(m, "wr_cost_projection_usd", "item", "do_duration"))],
+        ["SQLite rows", num(lab(m, "wr_usage_projection", "item", "do_rows_written")), "50 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_rows_written"))]
+      ], true) + '<p class="s">Coordinator usage if the last hour lasted the whole month, against what the Workers Paid plan includes. Ignores the other Workers of the account and the requests of this Worker itself.</p></div>' +
+      box("DO requests by kind and mode (total)", table(null, reqRows)) +
+      box("Isolates seen in the last 10 minutes", table(["Isolate", "Last report", "Batches", "Lease"], c.isolates.map(function (i) { return [i.id, dur(i.lastSeenSec) + " ago", num(i.seq), num(i.lease)]; }))) +
+      "</div></section>";
+    return html;
+  }
+  function edge(e) {
+    var calls = Object.keys(e.calls).map(function (op) { return ["Coordinator calls: " + op, num(e.calls[op])]; });
+    return "<section>" + box("This edge isolate (" + (e.colo || "?") + ")", table(null, [
+      ["Isolate", e.isolateId],
+      ["Data center", e.colo || "unknown"],
+      ["Uptime", dur(e.uptimeSec)],
+      ["Snapshot", e.snapshot ? "age " + num(e.snapshot.ageMs / 1000, 1) + " s, TTL " + num(e.snapshot.ttlMs / 1000) + " s, " + (e.snapshot.open ? "open" : "queueing") + ", gen " + e.snapshot.gen : "none"],
+      ["Local lease", num(e.lease.remaining) + " slots, expires in " + num(Math.max(0, e.lease.expiresInSec)) + " s"],
+      ["Pending deltas", "redeemed " + e.pending.redeemed + ", lease used " + e.pending.leaseUsed + ", claims " + e.pending.claims + ", session minutes " + e.pending.activeMinutes],
+      ["Snapshot cache hits / misses", num(e.cache.hits) + " / " + num(e.cache.misses)],
+      ["Coordinator errors (this isolate) timeout / overloaded / other", num(e.errors.timeout) + " / " + num(e.errors.overloaded) + " / " + num(e.errors.other)],
+      ["Revoked tickets known / whitelist entries", num(e.revoked) + " / " + num(e.whitelist)]
+    ].concat(calls)), "This edge isolate") + '<p class="s">Each request may land on another isolate or data center; these values describe the one that answered.</p></section>';
+  }
+  // Last answer of the coordinator: a failed refresh keeps it on screen (marked stale)
+  // instead of replacing the whole page with an error.
+  var last = null;
+  function render(d) {
+    $("room").textContent = d.room;
+    var c = d.coordinator;
+    if (c) last = { c: c, at: d.now };
+    var shown = c || (last && last.c);
+    $("meta").textContent = "v" + d.version + (shown ? " · config gen " + shown.state.gen : "") + " · " + new Date(d.now).toLocaleTimeString();
+    if (c) updateControls(c.state);
+    var stale = c ? "" : '<span class="b bad">coordinator did not answer' + (last ? ", data from " + new Date(last.at).toLocaleTimeString() : "") + tip("stale") + "</span>";
+    $("badges").innerHTML = (shown ? badges(shown) : "") + stale;
+    $("main").innerHTML = (shown ? coordinator(shown) : '<p class="bad">The coordinator did not answer.</p>') + (d.edge ? edge(d.edge) : "");
+    // Wait first, to tell the rooms apart in a row of browser tabs.
+    document.title = (shown ? (shown.state.paused ? "paused " : "") + wait(shown) + (c ? "" : " (stale)") + " · " : "") + d.room + " · Waiting room";
+    // The refresh replaced the element under an open tooltip: follow its replacement.
+    if (tipKey) {
+      var a = document.querySelector('.h[data-h="' + tipKey.replace(/["\\]/g, "\\$&") + '"]');
+      if (a) showTip(a); else hideTip();
+    } else if (tipChart) {
+      var sv = document.querySelector('.chart[data-c="' + tipChart.key.replace(/["\\]/g, "\\$&") + '"] svg');
+      if (sv) chartTip(sv, tipChart.x); else hideTip();
+    }
+  }
+  // One tooltip for the whole page, placed next to its target and kept inside the viewport.
+  // It moves into an open dialog, which is drawn above everything else.
+  var tipEl = document.createElement("div");
+  tipEl.className = "tip";
+  tipEl.setAttribute("role", "tooltip");
+  tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+  var tipKey = null, tipChart = null;
+  function showAt(text, from, left, width, top, bottom) {
+    var host = from.closest("dialog") || document.body;
+    if (tipEl.parentNode !== host) host.appendChild(tipEl);
+    tipEl.textContent = text;
+    tipEl.hidden = false;
+    var vw = document.documentElement.clientWidth;
+    var x = Math.min(Math.max(8, left + width / 2 - tipEl.offsetWidth / 2), vw - tipEl.offsetWidth - 8);
+    var y = bottom + 6;
+    if (y + tipEl.offsetHeight > window.innerHeight - 8 && top - tipEl.offsetHeight - 6 > 8) y = top - tipEl.offsetHeight - 6;
+    tipEl.style.left = x + "px";
+    tipEl.style.top = y + "px";
+  }
+  function showTip(a) {
+    var key = a.getAttribute("data-h");
+    if (!H[key]) return;
+    hideTip();
+    tipKey = key;
+    var r = a.getBoundingClientRect();
+    showAt(H[key], a, r.left, r.width, r.top, r.bottom);
+  }
+  // Chart tooltip: the minute under the pointer, its time and the value of each series.
+  function chartTip(svg, clientX) {
+    var key = svg.parentNode.getAttribute("data-c"), ch = charts[key];
+    if (!ch) return;
+    var r = svg.getBoundingClientRect();
+    var j = Math.min(ch.n - 1, Math.max(0, Math.round((clientX - r.left) / r.width * (ch.n - 1))));
+    if (tipKey) hideTip();
+    tipChart = { key: key, x: clientX };
+    var line = svg.querySelector("line"), x = (j * 300 / (ch.n - 1)).toFixed(1);
+    line.setAttribute("x1", x);
+    line.setAttribute("x2", x);
+    line.setAttribute("visibility", "visible");
+    var text = hhmm(ch.t0 + j * 60000) + "\n" + ch.labels.map(function (l, i) { return l + ": " + num(ch.series[i][j]) + "/min"; }).join("\n");
+    var px = r.left + j / (ch.n - 1) * r.width;
+    showAt(text, svg, px, 0, r.top, r.bottom);
+  }
+  function hideTip() {
+    tipKey = null;
+    tipChart = null;
+    tipEl.hidden = true;
+    var l = document.querySelectorAll(".chart line");
+    for (var i = 0; i < l.length; i++) l[i].setAttribute("visibility", "hidden");
+  }
+  function icon(e) { return e.target && e.target.closest ? e.target.closest(".h[data-h]") : null; }
+  function plot(e) { return e.target && e.target.closest ? e.target.closest(".chart svg") : null; }
+  document.addEventListener("mouseover", function (e) { var a = icon(e); if (a) showTip(a); });
+  document.addEventListener("mouseout", function (e) { var a = icon(e); if (a && !a.contains(e.relatedTarget)) hideTip(); });
+  document.addEventListener("pointermove", function (e) { var s = plot(e); if (s) chartTip(s, e.clientX); else if (tipChart) hideTip(); });
+  document.addEventListener("pointerdown", function (e) { var s = plot(e); if (s) chartTip(s, e.clientX); });
+  document.addEventListener("focusin", function (e) { var a = icon(e); if (a) showTip(a); });
+  document.addEventListener("focusout", function (e) { if (icon(e)) hideTip(); });
+  document.addEventListener("click", function (e) { var a = icon(e); if (a) showTip(a); else if (!plot(e)) hideTip(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hideTip(); });
+  window.addEventListener("scroll", function () { if (tipKey || tipChart) hideTip(); }, { passive: true });
+  // Overlays: whitelist, settings, signed link. Closed by their button, Escape or a click outside.
+  var opens = document.querySelectorAll("[data-open]");
+  for (var o = 0; o < opens.length; o++) opens[o].addEventListener("click", function () { $(this.getAttribute("data-open")).showModal(); });
+  var dialogs = document.querySelectorAll("dialog");
+  for (var q = 0; q < dialogs.length; q++) {
+    dialogs[q].addEventListener("click", function (e) { if (e.target === this || (e.target.closest && e.target.closest("[data-close]"))) this.close(); });
+    dialogs[q].addEventListener("close", function () { hideTip(); this.querySelector(".msg").textContent = ""; });
+  }
+  // Controls: static markup outside #main, so that the 10 s refresh never wipes what is being typed.
+  function api(method, path, body) {
+    return fetch("/__wr/dashboard/admin/" + path, {
+      method: method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || "HTTP " + r.status);
+        return d;
+      });
+    });
+  }
+  // Messages go to the open dialog, or under the controls.
+  function say(text, ok) {
+    var m = document.querySelector("dialog[open] .msg") || $("msg");
+    m.textContent = text;
+    m.className = "s msg " + (ok ? "msg-ok" : "msg-bad");
+  }
+  var busy = false;
+  function act(label, method, path, body, done) {
+    if (busy) return;
+    busy = true;
+    say(label + "…", true);
+    api(method, path, body)
+      .then(function (d) {
+        say(label + ": done. Every data center applies it within 20 to 60 s.", true);
+        if (done) done(d);
+        load();
+      })
+      .catch(function (e) { say(label + ": " + e.message, false); })
+      .then(function () { busy = false; });
+  }
+  var state = null;
+  var dirty = {};
+  function updateControls(s) {
+    state = s;
+    $("controls").hidden = false;
+    var b = document.querySelectorAll("[data-mode]");
+    for (var i = 0; i < b.length; i++) b[i].setAttribute("aria-pressed", String(b[i].getAttribute("data-mode") === s.mode));
+    $("pause").textContent = s.paused ? "Resume admissions" : "Pause admissions";
+    $("pause").setAttribute("aria-pressed", String(!!s.paused));
+    var cfg = s.config || {};
+    var f = $("f-rate");
+    if (!dirty["f-rate"] && document.activeElement && f.contains(document.activeElement) === false) {
+      f.admissionsPerMinute.value = cfg.admissionsPerMinute;
+      f.sessionMinutes.value = cfg.sessionMinutes;
+    }
+    $("reff").textContent = "effective " + num(s.rEff, 1) + "/min";
+    var wl = cfg.whitelist || [];
+    $("wl-n").textContent = "(" + wl.length + ")";
+    $("wl").innerHTML = wl.length === 0 ? '<p class="s">No entry.</p>' : '<div class="scroll"><table class="wl">' + wl.map(function (w) {
+      return "<tr><td>" + esc(w.cidr) + "</td><td>" + esc(w.label) + '</td><td><button type="button" data-cidr="' + esc(w.cidr) + '">Remove</button></td></tr>';
+    }).join("") + "</table></div>";
+    var json = JSON.stringify(cfg, null, 2);
+    if ($("cfg").textContent !== json) $("cfg").textContent = json;
+  }
+  var b = document.querySelectorAll("[data-mode]");
+  for (var i = 0; i < b.length; i++) b[i].addEventListener("click", function () {
+    var mode = this.getAttribute("data-mode");
+    if (state && state.mode === mode) return;
+    if (mode === "off" && !confirm("Turn the waiting room off? Every visitor goes straight to the site, without any control.")) return;
+    if (mode === "queue_all" && !confirm("Send every new visitor through the queue, even when there is room?")) return;
+    act("Mode " + mode, "PUT", "mode", { mode: mode });
+  });
+  $("pause").addEventListener("click", function () {
+    var paused = !(state && state.paused);
+    if (paused && !confirm("Pause admissions? Nobody new enters the site until you resume.")) return;
+    act(paused ? "Pause" : "Resume", "PUT", "pause", { paused: paused });
+  });
+  ["f-rate", "f-cfg"].forEach(function (id) { $(id).addEventListener("input", function () { dirty[id] = true; }); });
+  $("f-rate").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var r = Number(this.admissionsPerMinute.value), d = Number(this.sessionMinutes.value), cfg = (state && state.config) || {};
+    if (!confirm("Set the admission rate to " + r + "/min (now " + cfg.admissionsPerMinute + ") and the session duration to " + d + " min (now " + cfg.sessionMinutes + ")?")) return;
+    act("Rate and session", "PATCH", "config", { admissionsPerMinute: r, sessionMinutes: d }, function () { dirty["f-rate"] = false; });
+  });
+  $("f-cfg").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = this, patch;
+    try { patch = JSON.parse(form.patch.value); } catch (x) { say("Settings: invalid JSON (" + x.message + ")", false); return; }
+    if (typeof patch !== "object" || patch === null || Array.isArray(patch)) { say("Settings: a JSON object is expected", false); return; }
+    if (!confirm("Apply " + JSON.stringify(patch) + "?")) return;
+    act("Settings", "PATCH", "config", patch, function () { form.reset(); dirty["f-cfg"] = false; });
+  });
+  $("f-wl").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = this;
+    act("Whitelist " + form.cidr.value, "POST", "whitelist", { entries: [{ cidr: form.cidr.value.trim(), label: form.label.value.trim() }] }, function () { form.reset(); });
+  });
+  $("wl").addEventListener("click", function (e) {
+    var t = e.target.closest ? e.target.closest("[data-cidr]") : null;
+    if (!t) return;
+    var cidr = t.getAttribute("data-cidr");
+    if (!confirm("Remove " + cidr + " from the whitelist?")) return;
+    act("Remove " + cidr, "DELETE", "whitelist", { cidrs: [cidr] });
+  });
+  $("f-pass").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = this;
+    act("Signed link", "POST", "pass", { host: form.host.value.trim().toLowerCase(), path: form.path.value, label: form.label.value.trim(), ttlSeconds: Number(form.ttl.value) }, function (d) {
+      $("pass-url").value = d.url;
+      $("pass-out").hidden = false;
+      say("Signed link created, valid until " + new Date(d.expiresAt).toLocaleString() + ".", true);
+    });
+  });
+  $("pass-copy").addEventListener("click", function () {
+    var u = $("pass-url");
+    u.select();
+    if (navigator.clipboard) navigator.clipboard.writeText(u.value).then(function () { say("Link copied.", true); });
+  });
+  // Static help icons get their accessible text here (the dynamic ones carry it already).
+  var hs = document.querySelectorAll(".h[data-h]");
+  for (var j = 0; j < hs.length; j++) if (H[hs[j].getAttribute("data-h")]) hs[j].setAttribute("aria-label", H[hs[j].getAttribute("data-h")]);
+  function load() {
+    fetch("/__wr/dashboard/data", { cache: "no-store", credentials: "same-origin" })
+      .then(function (r) {
+        if (r.status === 401) { location.reload(); throw new Error("unauthorized"); }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(render)
+      .catch(function (e) { $("meta").textContent = "error: " + e.message; });
+  }
+  $("auto").addEventListener("click", function () { auto = !auto; this.textContent = "Auto-refresh: " + (auto ? "on" : "off"); if (auto) load(); });
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && auto) load(); });
+  setInterval(function () { if (auto && !document.hidden) load(); }, REFRESH_MS);
+  load();
+})();

@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Example configuration of the waiting room Worker: the edge fetch handler
+// (waiting page, whitelist, administration) and the Coordinator Durable Object
+// in one script. Copy to wrangler/waitingroom.jsonc (git-ignored) or keep the
+// real file in your private deployment repository.
+//
+// Every deployment, including `wrangler secret put`, restarts the Durable Object:
+// its state is reloaded from SQLite, but up to 10 s of slots are skipped and the
+// outstanding leases are forgotten (docs/runbook.md). Do not deploy during
+// traffic events; set every secret you may need (Turnstile included) beforehand.
+//
+// Routes are NOT declared here: protected paths and the exclusion routes
+// (static, API, webhooks) are managed by deploy/scripts/routes.sh, see
+// docs/routing.md.
+//
+// Secrets (wrangler secret put <NAME> --config wrangler/waitingroom.jsonc):
+//   WR_KEYS              JSON {"<kid>": "<base64, >= 32 bytes>"}, one or two keys
+//   WR_KEY_CURRENT       kid used to sign new cookies
+//   WR_ADMIN_TOKEN       bearer token of /__wr/admin/v1/*
+//   WR_METRICS_USER      basic auth user of /__wr/metrics
+//   WR_METRICS_PASSWORD  basic auth password of /__wr/metrics
+//   WR_DASHBOARD_USER    basic auth user of /__wr/dashboard (optional, 404 when unset)
+//   WR_DASHBOARD_PASSWORD basic auth password of /__wr/dashboard
+//   WR_BYPASS_SECRET     value of the server-to-server bypass header (optional)
+//   WR_BOT_SECRET        value the Transform Rule gives BOT_HEADER for verified bots (optional,
+//                        >= 32 characters, same value as the Transform Rule, docs/routing.md)
+//   WR_TURNSTILE_SECRET  Turnstile secret key, when reserveVerifier = "turnstile" (optional)
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "waitingroom",
+  "main": "../src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "minify": true,
+  // Do not keep the original function names after minification (saves ~1.5 KiB; only stack traces lose them).
+  "keep_names": false,
+  // Minifies the HTML pages into templates/generated/ directories before bundling (run wrangler from the
+  // repository root, as in INSTALL.md: the command and watch_dir are relative to the current directory).
+  "build": { "command": "node scripts/build-templates.mjs", "watch_dir": ["src", "scripts"] },
+  // The workers.dev hostname serves the operator endpoints only (ADMIN_HOSTS below), behind
+  // Cloudflare Access enabled on that hostname only: see docs/operator-access.md. Set it to false
+  // (and ADMIN_HOSTS to "") to serve them on the site's hostnames instead.
+  "workers_dev": true,
+  // A preview URL would run the site flow on another hostname: keep it off.
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "COORDINATOR", "class_name": "Coordinator" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Coordinator"] }],
+  "vars": {
+    // Room identifier: name of the Durable Object, part of the cookie names and of the cookie MAC.
+    // [a-z0-9-], at most 32 characters.
+    "ROOM_ID": "main",
+    // Initial operational configuration, applied only when the room has no stored
+    // configuration yet. Afterwards, use the admin API. See docs/configuration.md.
+    "WR_BOOTSTRAP_CONFIG": "{\"admissionsPerMinute\":200,\"sessionMinutes\":10}",
+    // Required. Behaviour when the coordinator cannot be reached, including on an isolate that has
+    // not received its first snapshot yet: "open" relays to the origin, "closed" answers a static
+    // 503 with Retry-After. Unset or invalid: closed, and `misconfigured` is logged.
+    "FAIL_MODE": "closed",
+    // Early exit, evaluated before any I/O: requests matching these are relayed untouched.
+    // Use routes without Worker for whole prefixes (cheaper: the Worker does not run at all).
+    "EARLY_EXIT_EXTENSIONS": "css,js,mjs,map,png,jpg,jpeg,gif,webp,avif,svg,ico,woff,woff2,ttf,otf,eot,mp4,webm,mp3",
+    "EARLY_EXIT_PREFIXES": "",
+    // Header set to WR_BOT_SECRET by the Transform Rule for allowed verified bots (see docs/routing.md).
+    // The bypass is active only when WR_BOT_SECRET is set too; any other value is refused.
+    "BOT_HEADER": "x-wr-bot",
+    // Header carrying WR_BYPASS_SECRET for server-to-server calls. Removed before reaching the origin.
+    "BYPASS_HEADER": "x-wr-bypass",
+    // Share of nominal decisions that are logged (refusals and errors are always logged).
+    "LOG_SAMPLE_RATE": "0.01",
+    // Snapshot TTLs an isolate keeps admitting on its last snapshot while the coordinator is unreachable,
+    // before the fail mode applies (1 = strict, 6 = default).
+    "STALE_SNAPSHOT_TTLS": "6",
+    // Timeout of coordinator calls on the request path, in milliseconds.
+    "COORDINATOR_TIMEOUT_MS": "1000",
+    // Durable Object placement hint (only honoured when the object is first created).
+    "LOCATION_HINT": "weur",
+    // Operator hostnames (comma-separated): admin API, metrics and dashboard answer only there (404 on
+    // the site), and these hostnames serve nothing else. `wrangler deploy` prints the workers.dev URL.
+    "ADMIN_HOSTS": "waitingroom.<account-subdomain>.workers.dev"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    // Every invocation would otherwise emit one billed log line. Decisions are
+    // logged (and sampled) by the Worker itself.
+    "logs": { "invocation_logs": false }
+  }
+}

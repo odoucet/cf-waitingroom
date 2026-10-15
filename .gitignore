@@ -1,0 +1,20 @@
+node_modules/
+.wrangler/
+.vitest-cache/
+coverage/
+
+# Generated runtime types (npm run types)
+src/worker-configuration.d.ts
+# Minified pages (scripts/build-templates.mjs)
+src/*/templates/generated/
+
+# Real deployment configuration lives outside this public repository
+wrangler/waitingroom.jsonc
+wrangler/edge.jsonc
+wrangler/coordinator.jsonc
+.dev.vars*
+.env*
+deploy/*.env
+
+# Private project brief (contains deployment-specific figures)
+/spec.md

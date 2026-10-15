@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: Apache-2.0
+// Waiting page logic: reserve a slot, count down to admitAt, reload once.
+// No polling except an optional status check every ~60 s (pause, mode, early admission).
+(function () {
+  var d = JSON.parse(document.getElementById("wr-data").textContent);
+  var skew = Date.now() - d.serverTime;
+  var t = d.ticket;
+  var eta = document.getElementById("wr-eta");
+  var state = document.getElementById("wr-state");
+  var timer = 0;
+  function now() { return Date.now() - skew; }
+  function fmt(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000)), m = Math.floor(s / 60);
+    return (m > 0 ? m + " " + MSG.min + " " : "") + (s % 60) + " " + MSG.sec;
+  }
+  function reload() { location.reload(); }
+  function schedule() {
+    clearTimeout(timer);
+    if (!t || d.paused) return;
+    timer = setTimeout(reload, Math.max(0, t.admitAtMs - now()) + Math.random() * 2000);
+  }
+  function render() {
+    if (d.paused) { eta.textContent = "—"; state.textContent = MSG.paused; return; }
+    if (!t) return;
+    var left = t.admitAtMs - now();
+    eta.textContent = left > 0 ? fmt(left) : "…";
+    state.textContent = left > 0 ? MSG.wait : MSG.now;
+  }
+  // Proof of work (docs/interfaces.md): a counter whose SHA-256 starts with p.bits zero bits.
+  function solve(p) {
+    if (!p) return Promise.resolve(null);
+    var enc = new TextEncoder(), prefix = "wr-pow1\u0000" + p.room + "\u0000" + p.nonce + "\u0000";
+    function ok(buf) {
+      var b = new Uint8Array(buf), bits = p.bits, i = 0;
+      for (; bits >= 8; bits -= 8) if (b[i++] !== 0) return false;
+      return bits === 0 || b[i] >> (8 - bits) === 0;
+    }
+    function batch(start) {
+      var jobs = [];
+      for (var i = 0; i < 256; i++) jobs.push(crypto.subtle.digest("SHA-256", enc.encode(prefix + (start + i))));
+      return Promise.all(jobs).then(function (rs) {
+        for (var i = 0; i < rs.length; i++) if (ok(rs[i])) return String(start + i);
+        return batch(start + 256);
+      });
+    }
+    return batch(0);
+  }
+  var work = null;
+  function start(token) {
+    work = work || solve(d.pow);
+    var delay = d.reserveAfterMs ? Math.max(0, d.reserveAfterMs - now()) : 0;
+    Promise.all([work, new Promise(function (r) { setTimeout(r, delay); })])
+      .then(function (v) { reserve(token, v[0]); })
+      .catch(function () { state.textContent = MSG.error; });
+  }
+  function reserve(token, pow) {
+    fetch(d.reserveUrl, {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ turnstileToken: token || null, pow: pow })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.status === "admitted") return reload();
+      if (j.ticketNo) {
+        skew = Date.now() - j.serverTime;
+        t = { ticketNo: j.ticketNo, signedAdmitAtMs: j.admitAtMs, admitAtMs: j.admitAtMs };
+        render(); schedule();
+      } else if (j.status === "retry") {
+        setTimeout(function () { reserve(token, pow); }, (j.retryAfterSec || 5) * 1000);
+      } else {
+        // Refused (expired cookie, failed verification): a reload starts over with a fresh cookie.
+        state.textContent = MSG.error;
+        setTimeout(reload, 5000 + Math.random() * 5000);
+      }
+    }).catch(function () {
+      state.textContent = MSG.error;
+      setTimeout(function () { reserve(token, pow); }, 10000);
+    });
+  }
+  function status() {
+    fetch(d.statusUrl, { credentials: "same-origin", cache: "no-store", headers: { accept: "application/json" } })
+      .then(function (r) { return r.json(); }).then(function (j) {
+        if (j.mode === "off") return reload();
+        d.paused = j.paused;
+        if (t) {
+          var off = 0;
+          (j.pauseOffsets || []).forEach(function (p) { if (t.ticketNo <= p[0]) off += p[1]; });
+          t.admitAtMs = t.signedAdmitAtMs + off;
+          if (!j.paused && t.ticketNo <= j.earlyUpTo) return reload();
+        }
+        render(); schedule();
+      }).catch(function () {});
+    setTimeout(status, 50000 + Math.random() * 20000);
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && t && !d.paused && now() >= t.admitAtMs) reload();
+  });
+  setInterval(render, 1000);
+  if (t) { render(); schedule(); }
+  else {
+    work = solve(d.pow);
+    if (d.turnstile) window.wrTurnstile = function (token) { start(token); };
+    else start(null);
+  }
+  setTimeout(status, 50000 + Math.random() * 20000);
+})();

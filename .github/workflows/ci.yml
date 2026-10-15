@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Checks only: no deployment job and no secret in this public repository.
+# Deployments run from a private repository or a protected environment.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (strict)
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Simulations
+        run: npm run test:sim
+      - name: Integration tests (Workers runtime)
+        run: npm run test:integration
+      - name: Bundle size (fails above 250 KiB)
+        run: npm run size
+      - name: SPDX headers
+        run: npm run spdx

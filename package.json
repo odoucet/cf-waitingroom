@@ -1,0 +1,47 @@
+{
+  "name": "cf-waitingroom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted waiting room for Cloudflare Workers and Durable Objects, driven by admission slots.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:sim": "vitest run --project sim",
+    "test:integration": "vitest run --project edge --project coordinator",
+    "size": "node scripts/check-bundle-size.mjs",
+    "spdx": "node scripts/check-spdx.mjs",
+    "types": "wrangler types --config wrangler/test.jsonc --include-env=false src/worker-configuration.d.ts",
+    "dev": "wrangler dev --config wrangler/waitingroom.jsonc",
+    "pretypecheck": "npm run types --silent",
+    "sim": "vitest run --project sim --reporter verbose"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.4",
+    "wrangler": "4.149.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261006.1": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/odoucet/cf-waitingroom.git"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "durable-objects",
+    "waiting-room",
+    "queue",
+    "rate-limiting"
+  ]
+}

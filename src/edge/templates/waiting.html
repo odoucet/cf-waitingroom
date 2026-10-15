@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Source of the waiting page. scripts/build-templates.mjs minifies it, with its style and the
+     script waiting.js.txt, into generated/waiting.html. {{...}} placeholders are filled per response:
+     texts from src/edge/waiting.ts (TEXTS), NONCE, DATA, TURNSTILE, MSG. -->
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{title}}</title>
+<style nonce="{{NONCE}}">
+  :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #f5f5f7; --card: #fff; --accent: #0a66c2; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --muted: #a1a1a6; --bg: #111; --card: #1c1c1e; --accent: #4ea1ff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+  main { background: var(--card); max-width: 30rem; width: 100%; padding: 2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  h1 { font-size: 1.4rem; margin: 0 0 .75rem; }
+  p { margin: .5rem 0; color: var(--muted); }
+  .eta { font-size: 2.2rem; font-weight: 600; color: var(--accent); margin: 1rem 0; font-variant-numeric: tabular-nums; }
+  .note { font-size: .875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{heading}}</h1>
+  <p>{{intro}}</p>
+  <div class="eta" id="wr-eta" aria-live="polite">…</div>
+  <p id="wr-state">{{wait}}</p>
+  <p class="note">{{note}}</p>
+  {{TURNSTILE}}
+  <noscript><p>{{noscript}}</p></noscript>
+</main>
+<script id="wr-data" type="application/json">{{DATA}}</script>
+<script nonce="{{NONCE}}">var MSG = {{MSG}};
+{{SCRIPT}}</script>
+</body>
+</html>
