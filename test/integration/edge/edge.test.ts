@@ -89,6 +89,23 @@ describe("routing", () => {
     }
   });
 
+  it("counts every Worker request, early exits included, without flushing for them", async () => {
+    const b = new Browser();
+    await b.get("/assets/app.css");
+    await b.get("/static/anything");
+    const c = getIsolate().core;
+    expect(c.counters.workerRequests).toBe(2);
+    expect(c.counters.earlyExits).toBe(2);
+    expect(c.flushReason(Date.now() + 3_600_000)).toBeNull();
+    // The first protected request of a cold isolate flushes: the counts leave with that batch.
+    await b.get("/");
+    expect(c.counters.workerRequests).toBe(0);
+    const text = await (await new Browser({ authorization: `Basic ${btoa("prometheus:test-metrics-password")}` }).get("/__wr/metrics")).text();
+    expect(text).toContain(`wr_worker_requests_total{room="${E.ROOM_ID}"} 3`);
+    expect(text).toContain(`wr_early_exits_total{room="${E.ROOM_ID}"} 2`);
+    expect(text).toContain(`wr_usage_projection{room="${E.ROOM_ID}",item="worker_requests"} ${3 * 720}`);
+  });
+
   it("refuses the early exit for writes and for paths some origins resolve to a dynamic page", async () => {
     for (const p of ["/index.php/x.css", "/cart;.js", "/static/..;/cart", "/static/..%2Fcart", "/app.aspx/x.png"]) {
       const b = new Browser();

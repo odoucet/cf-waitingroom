@@ -240,6 +240,29 @@ describe("CoordinatorCore", () => {
     expect(p.usd.do_requests).toBe(0);
   });
 
+  it("projects the Worker requests the isolates report", () => {
+    const c = new CoordinatorCore(cfg(), 1, T);
+    // 40k requests an hour, as reported by two isolates: 28.8 M a month, 18.8 M beyond the 10 M included.
+    c.applyBatch(batch({ seq: 1, counters: { ...zeroEdgeCounters(), workerRequests: 25_000, earlyExits: 5_000 } }), T);
+    c.applyBatch(batch({ isolateId: "b", seq: 1, counters: { ...zeroEdgeCounters(), workerRequests: 15_000 } }), T + 1000);
+    const p = c.costProjection(T + 60_000);
+    expect(p.workerRequests).toBe(40_000 * 720);
+    expect(p.usd.worker_requests).toBeCloseTo(18.8 * 0.3, 6);
+    const m = c.metrics(T + 60_000);
+    expect(m.counters.wr_worker_requests_total).toBe(40_000);
+    expect(m.counters.wr_early_exits_total).toBe(5_000);
+    expect(m.labelled).toContainEqual({ name: "wr_usage_projection", labels: { item: "worker_requests" }, value: 40_000 * 720, type: "gauge" });
+    expect(c.dashboard(T + 60_000).history.early_exit!.at(-2)).toBe(5_000);
+  });
+
+  it("accepts batches from isolates older than the Worker request counters", () => {
+    const c = new CoordinatorCore(cfg(), 1, T);
+    const { workerRequests: _w, earlyExits: _e, ...old } = zeroEdgeCounters();
+    c.applyBatch(batch({ seq: 1, counters: { ...old, ipBypass: 1 } as never }), T);
+    expect(c.costProjection(T).workerRequests).toBe(0);
+    expect(c.metrics(T).counters.wr_worker_requests_total).toBe(0);
+  });
+
   it("keeps per-minute history for the dashboards", () => {
     const c = new CoordinatorCore(cfg(), 1, T);
     c.recordRequest("reserve", T);

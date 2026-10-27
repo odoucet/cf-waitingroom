@@ -29,6 +29,8 @@ const HELP: Record<string, string> = {
   wr_replays_rejected_total: "Ticket redemptions detected as replays.",
   wr_waiting_pages_total: "Waiting pages served.",
   wr_fail_open_total: "Requests let through because the coordinator was unavailable.",
+  wr_worker_requests_total: "Invocations of the edge Worker reported by the isolates (billed Worker requests), early exits included.",
+  wr_early_exits_total: "Requests relayed untouched by the early exit (static extensions and prefixes).",
   wr_coordinator_rows_written_total: "SQLite rows written by the coordinator.",
   wr_coordinator_storage_row_bytes: "Largest SQLite row, bytes (limit 2 MB).",
   wr_edge_config_generation_min: "Oldest configuration generation held by an isolate (last minute).",
@@ -44,8 +46,8 @@ const HELP: Record<string, string> = {
   wr_coordinator_errors_total: "Coordinator calls that failed, by kind.",
   wr_reserve_refused_total: "Reservations refused, by reason.",
   wr_refused_total: "Session, ticket, signed link or bypass header refused (invalid, expired, revoked), by kind.",
-  wr_cost_projection_usd: "Projected monthly Durable Object cost beyond the included usage, from the last hour.",
-  wr_usage_projection: "Projected monthly Durable Object usage, from the last hour.",
+  wr_cost_projection_usd: "Projected monthly cost beyond the included usage (Durable Object, Worker requests), from the last hour.",
+  wr_usage_projection: "Projected monthly usage (Durable Object, Worker requests), from the last hour.",
 };
 
 function esc(v: string): string {

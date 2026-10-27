@@ -15,6 +15,8 @@ import { pauseOffsetFor } from "./pause.js";
 export const MAX_STALE_TTLS = 6;
 const WL_SEEN_MAX = 10_000;
 const CLAIMED_MAX = 50_000;
+/** Counters sent with the batches but never a reason to flush: counting a request must not cost a Durable Object request. */
+const PIGGYBACK = new Set<string>(["workerRequests", "earlyExits"]);
 
 export type TicketState = "admit" | "wait" | "expired" | "duplicate";
 
@@ -122,9 +124,10 @@ export class EdgeCore {
   // -------------------------------------------------------------------------
   // Batches
 
+  /** Counters worth a flush; the Worker request counts only ride along with the others. */
   private hasCounters(): boolean {
     const c = this.counters;
-    for (const k in c) if (c[k as keyof EdgeCounters] !== 0) return true;
+    for (const k in c) if (!PIGGYBACK.has(k) && c[k as keyof EdgeCounters] !== 0) return true;
     return false;
   }
 
@@ -146,7 +149,8 @@ export class EdgeCore {
    *   the outstanding leases anyway);
    * - active-user deltas: every minute when the brake is enabled, every five
    *   minutes otherwise (metric only);
-   * - plain counters (bypasses, provisional cookies, errors): every five minutes.
+   * - plain counters (bypasses, provisional cookies, errors): every five minutes;
+   * - Worker request counts: never on their own, they leave with the next batch.
    */
   flushReason(now: number): string | null {
     const elapsed = now - this.lastFlushAt;

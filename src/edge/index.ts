@@ -457,9 +457,14 @@ export default {
     // An operator hostname serves the operator endpoints and nothing else: no
     // queue, no relay to the origin.
     const operatorHost = isAdminHost(url.hostname, env);
-    if (!operatorHost && isEarlyExit(request.method, url.pathname, env)) return fetch(request);
-    const reserved = operatorHost || url.pathname.startsWith("/__wr/");
+    // Every invocation is a billed Worker request: counted in memory, reported with the next batch.
     const iso = getIsolate();
+    iso.core.counters.workerRequests++;
+    if (!operatorHost && isEarlyExit(request.method, url.pathname, env)) {
+      iso.core.counters.earlyExits++;
+      return fetch(request);
+    }
+    const reserved = operatorHost || url.pathname.startsWith("/__wr/");
     // The preflight check reports configuration errors: it must answer before they are refused.
     if (url.pathname === PREFLIGHT_PATH && (operatorHost || !adminHostsSet(env))) return handleAdmin(request, url, env, iso);
     const invalid = baseConfigError(env);

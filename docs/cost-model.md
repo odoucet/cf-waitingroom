@@ -84,11 +84,19 @@ always logged. During a coordinator outage, `fail_mode` is logged for every requ
 
 The coordinator exports, from its last hour of activity:
 
-- `wr_usage_projection{item="do_requests"|"do_gb_seconds"|"do_rows_written"}`: monthly usage;
+- `wr_usage_projection{item="do_requests"|"do_gb_seconds"|"do_rows_written"|"worker_requests"}`: monthly usage;
 - `wr_cost_projection_usd{item=...}`: monthly cost beyond the included usage (it ignores other
   Workers of the account sharing the allowance);
 - `wr_coordinator_requests_total{kind,mode}`: requests by kind (reserve, flush, snapshot, admin) and
   mode (open, queue, paused, off);
-- `wr_coordinator_isolates`: active isolates, the main driver.
+- `wr_coordinator_isolates`: active isolates, the main driver;
+- `wr_worker_requests_total` and `wr_early_exits_total`: Worker requests, and those relayed by the
+  early exit.
 
-The projection counts the requests the coordinator receives; it does not include the Worker requests.
+Each isolate counts its Worker requests in memory and sends the count with its next batch; the count
+alone never triggers a flush, so measuring the Worker requests costs no Durable Object request. The
+figure is a slight undercount: an isolate evicted before its next batch takes its count with it, which
+mostly concerns isolates serving only early exits or bots. Early exits are billed like any other
+request: `wr_early_exits_total` is what excluding those paths from the routes would save. The Worker
+CPU time cannot be measured from inside the Worker (the clock does not advance during execution); read
+it from the Cloudflare analytics.

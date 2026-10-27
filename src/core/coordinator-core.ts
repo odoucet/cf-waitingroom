@@ -101,7 +101,7 @@ export type RequestKind = "reserve" | "flush" | "snapshot" | "admin" | "alarm";
 const KINDS: RequestKind[] = ["reserve", "flush", "snapshot", "admin", "alarm"];
 const REQUEST_KEYS = KINDS.map((k) => `req_${k}`);
 /** Per-minute series shown on the dashboards. */
-export const HISTORY_KEYS = [...REQUEST_KEYS, "adm_lease", "adm_ticket", "reserved", "absent", "replays", "waiting", "bypass", "fail_open", "rows"] as const;
+export const HISTORY_KEYS = [...REQUEST_KEYS, "adm_lease", "adm_ticket", "reserved", "absent", "replays", "waiting", "bypass", "fail_open", "rows", "worker_req", "early_exit"] as const;
 
 export interface CoreCounters {
   reserved: number;
@@ -509,6 +509,9 @@ export class CoordinatorCore {
     this.history.add(now, "waiting", Math.max(0, bc.waitingPages));
     this.history.add(now, "fail_open", Math.max(0, bc.failOpen));
     this.history.add(now, "bypass", Math.max(0, bc.botBypass + bc.ipBypass + bc.headerBypass + bc.passBypass));
+    // Absent from the batches of isolates older than these counters.
+    this.history.add(now, "worker_req", Math.max(0, bc.workerRequests ?? 0));
+    this.history.add(now, "early_exit", Math.max(0, bc.earlyExits ?? 0));
 
     this.updateHwm();
     return true;
@@ -766,8 +769,12 @@ export class CoordinatorCore {
     this.history.add(now, "rows", n);
   }
 
-  /** Monthly projection from the last hour of activity (30-day month). */
-  costProjection(now: number): { requests: number; gbSeconds: number; rowsWritten: number; usd: Record<string, number> } {
+  /**
+   * Monthly projection from the last hour of activity (30-day month). Worker
+   * requests are those the isolates reported: a slight undercount, an isolate
+   * evicted before its next batch takes its count with it.
+   */
+  costProjection(now: number): { requests: number; gbSeconds: number; rowsWritten: number; workerRequests: number; usd: Record<string, number> } {
     const req = this.history.sum(now, REQUEST_KEYS);
     const rows = this.history.sum(now, ["rows"]);
     const w = Math.floor(now / 10_000);
@@ -776,16 +783,19 @@ export class CoordinatorCore {
     const month = 30 * 24;
     const requests = req * month;
     const rowsWritten = rows * month;
+    const workerRequests = this.history.sum(now, ["worker_req"]) * month;
     // 128 MB billed while the object is active (not hibernatable).
     const gbSeconds = 0.125 * 30 * 86_400 * Math.min(1, win / 360);
     return {
       requests,
       gbSeconds,
       rowsWritten,
+      workerRequests,
       usd: {
         do_requests: (Math.max(0, requests - 1_000_000) * 0.15) / 1e6,
         do_duration: (Math.max(0, gbSeconds - 400_000) * 12.5) / 1e6,
         do_rows_written: (Math.max(0, rowsWritten - 50_000_000) * 1.0) / 1e6,
+        worker_requests: (Math.max(0, workerRequests - 10_000_000) * 0.3) / 1e6,
       },
     };
   }
@@ -833,9 +843,11 @@ export class CoordinatorCore {
       ["wr_cost_projection_usd", "item", "do_requests", cost.usd.do_requests!, "gauge"],
       ["wr_cost_projection_usd", "item", "do_duration", cost.usd.do_duration!, "gauge"],
       ["wr_cost_projection_usd", "item", "do_rows_written", cost.usd.do_rows_written!, "gauge"],
+      ["wr_cost_projection_usd", "item", "worker_requests", cost.usd.worker_requests!, "gauge"],
       ["wr_usage_projection", "item", "do_requests", cost.requests, "gauge"],
       ["wr_usage_projection", "item", "do_gb_seconds", cost.gbSeconds, "gauge"],
       ["wr_usage_projection", "item", "do_rows_written", cost.rowsWritten, "gauge"],
+      ["wr_usage_projection", "item", "worker_requests", cost.workerRequests, "gauge"],
     ];
     for (const [name, k, v, value, type] of rows) labelled.push({ name, labels: { [k]: v }, value, type: type ?? "counter" });
     const nowMin = minuteOf(now);
@@ -867,6 +879,8 @@ export class CoordinatorCore {
         wr_replays_rejected_total: c.replays,
         wr_waiting_pages_total: c.edge.waitingPages,
         wr_fail_open_total: c.edge.failOpen,
+        wr_worker_requests_total: c.edge.workerRequests,
+        wr_early_exits_total: c.edge.earlyExits,
         wr_coordinator_rows_written_total: c.rowsWritten,
         wr_batch_duplicates_total: c.batchDuplicates,
         wr_batch_gaps_total: c.batchGaps,

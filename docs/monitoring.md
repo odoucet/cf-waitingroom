@@ -55,7 +55,7 @@ The dashboard uid is `cf-waitingroom`: importing a newer version of the file rep
 | Admissions and queue | admissions per minute by path against `R` and the effective rate; waiting visitors and wait; tickets reserved, redeemed and absent; waiting pages; utilisation, absence ratio and brake; active users; provisional cookies issued and claimed |
 | Whitelist, bots and refusals | bypasses by kind, reservations refused by reason, tokens refused and replays |
 | Health | coordinator errors and fail-open; configuration propagation (coordinator generation and edge minimum); isolates and outstanding leases; largest SQLite row (red above 1 MB) and ledger size; edge batch duplicates and gaps; lease slots by state |
-| Durable Object usage and cost | coordinator requests per second by kind (red at the ≈ 1,000 req/s soft limit), SQLite rows written, monthly projection of usage and cost |
+| Cloudflare usage and cost | coordinator requests per second by kind (red at the ≈ 1,000 req/s soft limit), SQLite rows written, monthly projection of usage and cost (Worker requests included), Worker requests per minute and the early-exit share |
 
 Every panel has a description (the `i` next to its title). Two annotations mark **configuration
 changes** (rate, mode, pause, any setting) and **coordinator restarts** (a deployment or a secret

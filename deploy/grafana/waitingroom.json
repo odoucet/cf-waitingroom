@@ -2359,7 +2359,7 @@
     },
     {
       "type": "row",
-      "title": "Durable Object usage and cost",
+      "title": "Cloudflare usage and cost",
       "collapsed": false,
       "id": 36,
       "gridPos": {
@@ -2576,6 +2576,74 @@
             ]
           }
         ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker requests per minute",
+      "description": "Worker requests reported by the isolates (billed beyond 10 M per month), and those relayed by the early exit, billed all the same. Reported with the isolate batches, up to a few minutes late; a slight undercount.",
+      "id": 40,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 69
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum (rate(wr_worker_requests_total{room=~\"$room\"}[5m])) * 60",
+          "legendFormat": "all",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum (rate(wr_early_exits_total{room=~\"$room\"}[5m])) * 60",
+          "legendFormat": "early exit",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
       },
       "options": {
         "legend": {

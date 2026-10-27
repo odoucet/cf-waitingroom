@@ -25,5 +25,7 @@ export function zeroEdgeCounters(): EdgeCounters {
     ticketRefused: 0,
     passRefused: 0,
     bypassRefused: 0,
+    workerRequests: 0,
+    earlyExits: 0,
   };
 }

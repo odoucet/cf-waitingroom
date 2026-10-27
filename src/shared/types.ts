@@ -145,6 +145,10 @@ export interface EdgeCounters {
   ticketRefused: number;
   passRefused: number;
   bypassRefused: number;
+  /** Invocations of the edge Worker (billed Worker requests), early exits included. Sent with the batches, never a reason to flush. */
+  workerRequests: number;
+  /** Requests relayed by the early exit, a subset of workerRequests. Same flush rule. */
+  earlyExits: number;
 }
 
 /** Deltas accumulated by one isolate and sent with every RPC. */

@@ -31,6 +31,7 @@
     "Durable Object requests": "Technical: calls to the central coordinator, by kind. They drive the Cloudflare cost.\nAlarm: the coordinator writing its state, a few seconds after a change.",
     "Whitelist and failures": "Bypass: visitors let through without queue (search engines, partners, signed links).\nFail-open: visitors let through because the coordinator could not be reached.\nReplays: attempts to reuse a copied queue ticket, refused.",
     "SQLite rows written": "Technical: writes to the coordinator storage, counted in the Cloudflare bill.",
+    "Worker requests handled": "Requests handled by this Worker, the main item of the Cloudflare bill.\nEarly exit: static files relayed untouched, billed all the same.\nCounted in the minute the server instances report them, up to a few minutes late.",
     "Admissions, open (lease)": "Visitors let in directly, without waiting.",
     "Admissions, from queue": "Visitors let in after waiting their turn in the queue.",
     "Tickets reserved": "Places in the queue handed out.",
@@ -47,6 +48,8 @@
     "DO requests": "Calls to the coordinator.\nIncluded: 1 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
     "DO duration (GB-s)": "Time the coordinator stays active, in memory × seconds.\nIncluded: 400,000 GB-s a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
     "SQLite rows": "Writes to the coordinator storage.\nIncluded: 50 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
+    "Worker requests": "Requests handled by this Worker, static files relayed by the early exit included. Usually the largest item: only paths left out of the Worker routes cost nothing.\nIncluded: 10 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.\nReported by the server instances with their other counters: an instance stopped before its next report is not counted.",
+    "Worker requests / early exit": "Requests handled by this Worker since the room was created, and those relayed untouched by the early exit (static extensions and prefixes). The early exits are billed too: a route exclusion would make them free.",
     "DO requests by kind and mode (total)": "Technical: calls to the coordinator since the room was created, by kind and by room state.",
     "Isolates": "Technical: server instances that reported in the last 10 minutes. The table lists the 10 holding the most admission slots in advance (lease), then the most recent.\nLast report: time since their last call.\nBatches: reports sent since the instance started.",
     "Seen in the last 10 minutes": "Server instances that reported at least once in the last 10 minutes. Busy sites run hundreds of them.",
@@ -154,6 +157,7 @@
       chart(h, c.at, "Durable Object requests", ["req_flush", "req_reserve", "req_snapshot", "req_admin", "req_alarm"], ["flush", "reserve", "snapshot", "admin", "alarm"]) +
       chart(h, c.at, "Whitelist and failures", ["bypass", "fail_open", "replays"], ["bypass", "fail-open", "replays"]) +
       chart(h, c.at, "SQLite rows written", ["rows"], ["rows"]) +
+      chart(h, c.at, "Worker requests handled", ["worker_req", "early_exit"], ["all", "early exit"]) +
       "</div></section>";
     var reqRows = [];
     m.labelled.forEach(function (l) { if (l.name === "wr_coordinator_requests_total") reqRows.push([l.labels.kind + " · " + l.labels.mode, num(l.value)]); });
@@ -169,6 +173,7 @@
         ["Bypass bot / ip / header / link", ["bot", "ip", "header", "pass"].map(function (x) { return num(lab(m, "wr_bypass_total", "kind", x)); }).join(" / ")],
         ["Reservations refused too early / proof of work / busy", ["too_early", "pow", "busy"].map(function (x) { return num(lab(m, "wr_reserve_refused_total", "reason", x)); }).join(" / ")],
         ["Fail-open", num(k.wr_fail_open_total)],
+        ["Worker requests / early exit", num(k.wr_worker_requests_total) + " / " + num(k.wr_early_exits_total)],
         ["Coordinator errors timeout / overloaded / other", ["timeout", "overloaded", "other"].map(function (x) { return num(lab(m, "wr_coordinator_errors_total", "kind", x)); }).join(" / ")],
         ["Lease slots granted / used / returned / expired", ["granted", "used", "returned", "expired"].map(function (x) { return num(lab(m, "wr_lease_slots_total", "state", x)); }).join(" / ")],
         ["Revoked tickets / pending nonces", num(c.revoked) + " / " + num(c.pendingNonces)]
@@ -176,8 +181,9 @@
       '<div class="box"><h2>Monthly projection (last hour × 30 days)</h2>' + table(["Item", "Usage", "Included", "Beyond"], [
         ["DO requests", num(lab(m, "wr_usage_projection", "item", "do_requests")), "1 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_requests"))],
         ["DO duration (GB-s)", num(lab(m, "wr_usage_projection", "item", "do_gb_seconds")), "400 k", usd(lab(m, "wr_cost_projection_usd", "item", "do_duration"))],
-        ["SQLite rows", num(lab(m, "wr_usage_projection", "item", "do_rows_written")), "50 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_rows_written"))]
-      ], true) + '<p class="s">Coordinator usage if the last hour lasted the whole month, against what the Workers Paid plan includes. Ignores the other Workers of the account and the requests of this Worker itself.</p></div>' +
+        ["SQLite rows", num(lab(m, "wr_usage_projection", "item", "do_rows_written")), "50 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_rows_written"))],
+        ["Worker requests", num(lab(m, "wr_usage_projection", "item", "worker_requests")), "10 M", usd(lab(m, "wr_cost_projection_usd", "item", "worker_requests"))]
+      ], true) + '<p class="s">Usage if the last hour lasted the whole month, against what the Workers Paid plan includes. Ignores the other Workers of the account and the Worker CPU time.</p></div>' +
       box("DO requests by kind and mode (total)", table(null, reqRows)) +
       box("Isolates", table(null, [
         ["Seen in the last 10 minutes", num(c.isolates.seen)],

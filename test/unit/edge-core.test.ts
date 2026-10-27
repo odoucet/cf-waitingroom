@@ -103,6 +103,19 @@ describe("EdgeCore decisions", () => {
     expect(edge.flushReason(T + edge.ttl())).toBe("redeemed");
   });
 
+  it("sends the Worker request counts with the next batch, never flushing for them", () => {
+    const { edge } = setup();
+    edge.counters.workerRequests += 40;
+    edge.counters.earlyExits += 30;
+    expect(edge.flushReason(T + 3_600_000)).toBeNull();
+    edge.counters.ipBypass++;
+    expect(edge.flushReason(T + 300_000)).toBe("counters");
+    const b = edge.takeBatch(T + 300_000, false);
+    expect(b.counters.workerRequests).toBe(40);
+    expect(b.counters.earlyExits).toBe(30);
+    expect(edge.counters.workerRequests).toBe(0);
+  });
+
   it("resends an unacknowledged batch unchanged before any newer one", () => {
     const { edge } = setup();
     edge.recordRedeem(3, T, T);

@@ -115,6 +115,8 @@ edge-side counters arrive with the flushes (up to five minutes late).
 | `wr_bypass_total` | counter | `kind=bot\|ip\|header\|pass` | whitelist hits |
 | `wr_waiting_pages_total` | counter | | waiting pages served |
 | `wr_fail_open_total` | counter | | requests let through because the coordinator was unavailable |
+| `wr_worker_requests_total` | counter | | invocations of the edge Worker (billed Worker requests), early exits and operator endpoints included, as reported by the isolates with their batches: an isolate evicted before its next batch is not counted |
+| `wr_early_exits_total` | counter | | requests relayed untouched by the early exit (subset of `wr_worker_requests_total`) |
 | `wr_coordinator_errors_total` | counter | `kind=timeout\|overloaded\|other` | failed coordinator calls |
 | `wr_reserve_refused_total` | counter | `reason=too_early\|pow\|busy\|cross_site\|no_provisional_cookie\|turnstile\|full` | reservations refused: by the edge before reaching the coordinator, or by the coordinator (`full`) |
 | `wr_refused_total` | counter | `kind=session\|ticket\|pass\|bypass_header` | session, ticket, signed link or bypass header refused (invalid, expired, revoked) |
@@ -122,7 +124,7 @@ edge-side counters arrive with the flushes (up to five minutes late).
 | `wr_coordinator_rows_written_total` | counter | | SQLite rows written |
 | `wr_batch_duplicates_total` | counter | | edge batches received again after a lost answer, acknowledged without being applied |
 | `wr_batch_gaps_total` | counter | | edge batches lost by a coordinator restart |
-| `wr_usage_projection` | gauge | `item=do_requests\|do_gb_seconds\|do_rows_written` | monthly projection from the last hour |
+| `wr_usage_projection` | gauge | `item=do_requests\|do_gb_seconds\|do_rows_written\|worker_requests` | monthly projection from the last hour |
 | `wr_cost_projection_usd` | gauge | `item=...` | projected monthly cost beyond the included usage |
 
 ## Dashboards

@@ -19,6 +19,10 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
 - Whitelist: IP/CIDR, verified bots (Transform Rules), secret header, signed links.
 - `routes.sh` manages the IP whitelist from the config file (`WHITELIST`, `WHITELIST_PRUNE`).
 - Admin API v1, Prometheus metrics, cost projection.
+- Worker requests counted by the isolates and sent with their batches, without any extra Durable
+  Object request: `wr_worker_requests_total`, `wr_early_exits_total`,
+  `wr_usage_projection{item="worker_requests"}` and its cost, a chart and a projection row on the
+  dashboard.
 - Coordinator state, per-minute history included, written by an alarm 5 s after a change: the object
   hibernates after 10 s without traffic and loses its memory, and a quiet period loses nothing.
 - Reservation checks: minimum provisional cookie age, proof of work, `Sec-Fetch-Site`, and a cap on
@@ -34,7 +38,7 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
   configuration) and signed links in overlays. The dashboard credentials grant administration;
   read-only views go through the metrics.
 - Grafana dashboard (`deploy/grafana/waitingroom.json`) for the `/__wr/metrics` series: state,
-  admissions and queue, bots and refusals, health, Durable Object usage and cost, with annotations
+  admissions and queue, bots and refusals, health, Cloudflare usage and cost, with annotations
   for configuration changes and coordinator restarts; scrape, import and suggested alerts in
   `docs/monitoring.md`.
 - `ADMIN_HOSTS`: admin API, metrics and dashboard served only on operator hostnames (typically
