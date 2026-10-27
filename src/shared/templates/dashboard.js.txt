@@ -26,7 +26,7 @@
     "Absence ratio": "Share of queue places whose visitor never came back to use them (tab closed, gave up). The room lets in slightly more people to make up for them, up to the overbooking cap.",
     "Isolates (1 min)": "Technical: Cloudflare server instances running the waiting room that reported in the last minute. Grows with traffic.\nLeased slots: admission slots handed in advance to these instances and not reported as used yet; they let visitors in without a central call.",
     "Last hour, per minute": "Per-minute history of the last hour; hover or tap a chart for the values of a minute.",
-    "Admissions": "New visitors let into the site per minute.\nOpen: entered directly, without waiting.\nFrom queue: entered after waiting their turn.",
+    "Admissions": "New visitors let into the site per minute.\nOpen: entered directly, without waiting.\nFrom queue: entered after waiting their turn.\nDashed line: the expected maximum, the admission rate R (times the brake factor while the brake is on), at its current value. Short bursts above it are normal; the queue keeps the average at R.",
     "Queue": "Tickets: places in the queue handed out.\nWaiting pages: waiting pages shown.\nNo-shows: places never used by their visitor.",
     "Durable Object requests": "Technical: calls to the central coordinator, by kind. They drive the Cloudflare cost.\nAlarm: the coordinator writing its state, a few seconds after a change.",
     "Whitelist and failures": "Bypass: visitors let through without queue (search engines, partners, signed links).\nFail-open: visitors let through because the coordinator could not be reached.\nReplays: attempts to reuse a copied queue ticket, refused.",
@@ -51,7 +51,9 @@
     "Worker requests": "Requests handled by this Worker, static files relayed by the early exit included. Usually the largest item: only paths left out of the Worker routes cost nothing.\nIncluded: 10 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.\nReported by the server instances with their other counters: an instance stopped before its next report is not counted.",
     "Worker requests / early exit": "Requests handled by this Worker since the room was created, and those relayed untouched by the early exit (static extensions and prefixes). The early exits are billed too: a route exclusion would make them free.",
     "DO requests by kind and mode (total)": "Technical: calls to the coordinator since the room was created, by kind and by room state.",
-    "Isolates": "Technical: server instances that reported in the last 10 minutes. The table lists the 10 holding the most admission slots in advance (lease), then the most recent.\nLast report: time since their last call.\nBatches: reports sent since the instance started.",
+    "Isolates": "Technical: server instances (isolates) of this Worker that reported in the last 10 minutes. Cloudflare runs several per data center, on several machines, and starts or stops them with the traffic: their number follows the load, not the number of data centers.",
+    "Data centers": "Cloudflare data centers (airport code) of the instances seen in the last 10 minutes, the ten with the most instances first.\nLast minute: those that reported within the last minute.\n?: an instance that has not reported its data center yet.",
+    "Isolate list": "The 10 instances holding the most admission slots in advance (lease), then the most recent.\nDC: Cloudflare data center.\nLast report: time since their last call.\nBatches: reports sent since the instance started.",
     "Seen in the last 10 minutes": "Server instances that reported at least once in the last 10 minutes. Busy sites run hundreds of them.",
     "Reported in the last minute": "Instances counted as active: the lease share of each one depends on this number.",
     "Holding a lease": "Instances that hold admission slots in advance, not used yet.",
@@ -60,9 +62,11 @@
     "Snapshot": "Copy of the room state this instance works with, and its age. Refreshed every few seconds.",
     "Local lease": "Admission slots this instance holds in advance.",
     "Pending deltas": "Events of this instance not yet reported to the coordinator.",
-    "Snapshot cache hits / misses": "How often this instance found the room state in the data center cache instead of asking the coordinator.",
-    "Coordinator errors (this isolate) timeout / overloaded / other": "Failed calls to the coordinator from this instance, by cause.",
-    "Revoked tickets known / whitelist entries": "Cancelled queue tickets and whitelist entries known to this instance.",
+    "Cache hits / misses": "How often this instance found the room state in the data center cache instead of asking the coordinator.",
+    "Revoked tickets known": "Cancelled queue tickets known to this instance.",
+    "Whitelist entries": "Whitelist entries known to this instance.",
+    "Coordinator calls": "Calls from this instance to the coordinator since it started, by operation.",
+    "Coordinator errors": "Failed calls to the coordinator from this instance, by cause.",
     "Mode control": "Every change applies at once in the coordinator and reaches every Cloudflare data center within 20 to 60 seconds, without deployment; every change is logged.\nOn: normal operation.\nQueue all: every new visitor goes through the queue, even when there is room.\nOff: kill switch, the waiting room lets everyone through.\nPause: nobody new enters, visitors already inside keep browsing; Resume shifts the queue by the length of the pause.",
     "Rate and session": "R: admission rate, new visitors let in per minute; the main setting. Lower it to protect the origin; never redeploy for that.\nEffective: the rate actually used for the queue, a little higher to make up for people who leave the queue before their turn, lower if the safety brake is on.\nD: session duration, a visitor keeps access as long as they load a page at least every D minutes.",
     "Whitelist control": "IP addresses or ranges (CIDR) that never queue: office, partners, monitoring.\nAt most 1,000 entries, no range wider than /8 (IPv4) or /32 (IPv6).",
@@ -113,22 +117,27 @@
   // Per-minute series: the last value is the current (partial) minute; only complete minutes
   // are plotted. Each chart keeps its values for the hover tooltip.
   var charts = {};
-  function chart(hist, at, title, keys, labels) {
-    var max = 1, n = 0, len = 0;
+  // opts.tall: spans two grid rows; opts.ref: {label, value}, a dashed horizontal line (expected maximum).
+  function chart(hist, at, title, keys, labels, opts) {
+    opts = opts || {};
+    var max = 1, top = 1, n = 0, len = 0, ref = opts.ref;
     var series = keys.map(function (k) { var a = hist[k] || []; len = a.length; return a.slice(0, -1); });
     series.forEach(function (s) { n = s.length; s.forEach(function (v) { if (v > max) max = v; }); });
     if (n < 2) return "";
-    charts[title] = { labels: labels, series: series, n: n, t0: (Math.floor(at / 60000) - (len - 1)) * 60000 };
+    top = ref && ref.value > max ? ref.value : max;
+    charts[title] = { labels: labels, series: series, n: n, t0: (Math.floor(at / 60000) - (len - 1)) * 60000, ref: ref };
+    var y = function (v) { return (62 - v * 60 / top).toFixed(1); };
     var lines = series.map(function (s, i) {
-      var pts = s.map(function (v, j) { return (j * 300 / (n - 1)).toFixed(1) + "," + (62 - v * 60 / max).toFixed(1); }).join(" ");
+      var pts = s.map(function (v, j) { return (j * 300 / (n - 1)).toFixed(1) + "," + y(v); }).join(" ");
       return '<polyline class="l' + i + '" points="' + pts + '"/>';
     }).join("");
+    if (ref) lines += '<polyline class="ref" points="0,' + y(ref.value) + " 300," + y(ref.value) + '"/>';
     var legend = series.map(function (s, i) {
       var sum = 0;
       s.forEach(function (v) { sum += v; });
       return '<span class="c' + i + '">' + esc(labels[i]) + ": " + num(s[n - 1] || 0) + "/min · 1 h " + num(sum) + "</span>";
-    }).join("");
-    return '<div class="chart" data-c="' + esc(title) + '"><div class="k">' + esc(title) + tip(title) + " <span class=\"mut\">(max " + num(max) + "/min)</span></div>" +
+    }).join("") + (ref ? '<span class="mut">- - ' + esc(ref.label) + ": " + num(ref.value) + "/min</span>" : "");
+    return '<div class="chart' + (opts.tall ? " tall" : "") + '" data-c="' + esc(title) + '"><div class="k">' + esc(title) + tip(title) + " <span class=\"mut\">(max " + num(max) + "/min)</span></div>" +
       '<svg viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="' + esc(title) + '">' + lines +
       '<line x1="0" x2="0" y1="0" y2="64" visibility="hidden"/></svg><div class="lg">' + legend + "</div></div>";
   }
@@ -140,7 +149,8 @@
     if (s.brakeFactor < 1) b.push('<span class="b warn">brake ×' + num(s.brakeFactor, 2) + tip("brake") + "</span>");
     return b.join("");
   }
-  function coordinator(c) {
+  // edgeBox: the box of the isolate that answered, laid out in the same grid.
+  function coordinator(c, edgeBox) {
     var s = c.state, m = c.metrics, g = m.gauges, k = m.counters, h = c.history, cfg = s.config || {};
     charts = {};
     var html = "<section><h2>Now" + tip("Now") + "</h2>" + tiles([
@@ -152,12 +162,13 @@
       ["Isolates (1 min)", num(g.wr_coordinator_isolates), num(s.outstandingLeases) + " leased slots"]
     ]) + "</section>";
     html += "<section><h2>Last hour, per minute" + tip("Last hour, per minute") + '</h2><div class="charts">' +
-      chart(h, c.at, "Admissions", ["adm_lease", "adm_ticket"], ["open (lease)", "from queue"]) +
+      chart(h, c.at, "Admissions", ["adm_lease", "adm_ticket"], ["open (lease)", "from queue"],
+        { tall: true, ref: cfg.admissionsPerMinute ? { label: s.brakeFactor < 1 ? "expected max (R × brake)" : "expected max (R)", value: cfg.admissionsPerMinute * s.brakeFactor } : null }) +
       chart(h, c.at, "Queue", ["reserved", "waiting", "absent"], ["tickets", "waiting pages", "no-shows"]) +
-      chart(h, c.at, "Durable Object requests", ["req_flush", "req_reserve", "req_snapshot", "req_admin", "req_alarm"], ["flush", "reserve", "snapshot", "admin", "alarm"]) +
       chart(h, c.at, "Whitelist and failures", ["bypass", "fail_open", "replays"], ["bypass", "fail-open", "replays"]) +
-      chart(h, c.at, "SQLite rows written", ["rows"], ["rows"]) +
+      chart(h, c.at, "Durable Object requests", ["req_flush", "req_reserve", "req_snapshot", "req_admin", "req_alarm"], ["flush", "reserve", "snapshot", "admin", "alarm"]) +
       chart(h, c.at, "Worker requests handled", ["worker_req", "early_exit"], ["all", "early exit"]) +
+      chart(h, c.at, "SQLite rows written", ["rows"], ["rows"]) +
       "</div></section>";
     var reqRows = [];
     m.labelled.forEach(function (l) { if (l.name === "wr_coordinator_requests_total") reqRows.push([l.labels.kind + " · " + l.labels.mode, num(l.value)]); });
@@ -190,23 +201,51 @@
         ["Reported in the last minute", num(c.isolates.active)],
         ["Holding a lease", num(c.isolates.leasing)],
         ["On an older configuration", num(c.isolates.behind)]
-      ]) + '<p class="s">Largest leases first, then the most recent reports.</p>' + table(["Isolate", "Last report", "Batches", "Lease"], c.isolates.top.map(function (i) { return [i.id, dur(i.lastSeenSec) + " ago", num(i.seq), num(i.lease)]; }))) +
-      "</div></section>";
+      ]) + sub("Data centers", ["Data center", "Seen", "Last minute"], colos(c.isolates.colos || []))) +
+      box("Isolate list", table(["Isolate", "DC", "Last report", "Batches", "Lease"], c.isolates.top.map(function (i) { return [i.id, i.colo || "?", dur(i.lastSeenSec) + " ago", num(i.seq), num(i.lease)]; })) +
+        '<p class="s">Largest leases first, then the most recent reports.</p>') +
+      (edgeBox || "") + "</div></section>";
     return html;
   }
+  // Sub-table of a box, under its own heading.
+  function sub(title, head, rows) {
+    return rows.length ? "<h3>" + esc(title) + tip(title) + "</h3>" + table(head, rows) : "";
+  }
+  // Ten data centers with the most isolates, the rest summed up.
+  function colos(list) {
+    var rows = list.slice(0, 10).map(function (d) { return [d[0], num(d[1]), num(d[2])]; });
+    if (list.length > 10) {
+      var seen = 0, active = 0;
+      list.slice(10).forEach(function (d) { seen += d[1]; active += d[2]; });
+      rows.push([(list.length - 10) + (list.length === 11 ? " other" : " others"), num(seen), num(active)]);
+    }
+    return rows;
+  }
   function edge(e) {
-    var calls = Object.keys(e.calls).map(function (op) { return ["Coordinator calls: " + op, num(e.calls[op])]; });
-    return "<section>" + box("This edge isolate (" + (e.colo || "?") + ")", table(null, [
+    var s = e.snapshot;
+    return box("This edge isolate (" + (e.colo || "?") + ")", table(null, [
       ["Isolate", e.isolateId],
-      ["Data center", e.colo || "unknown"],
       ["Uptime", dur(e.uptimeSec)],
-      ["Snapshot", e.snapshot ? "age " + num(e.snapshot.ageMs / 1000, 1) + " s, TTL " + num(e.snapshot.ttlMs / 1000) + " s, " + (e.snapshot.open ? "open" : "queueing") + ", gen " + e.snapshot.gen : "none"],
-      ["Local lease", num(e.lease.remaining) + " slots, expires in " + num(Math.max(0, e.lease.expiresInSec)) + " s"],
-      ["Pending deltas", "redeemed " + e.pending.redeemed + ", lease used " + e.pending.leaseUsed + ", claims " + e.pending.claims + ", session minutes " + e.pending.activeMinutes],
-      ["Snapshot cache hits / misses", num(e.cache.hits) + " / " + num(e.cache.misses)],
-      ["Coordinator errors (this isolate) timeout / overloaded / other", num(e.errors.timeout) + " / " + num(e.errors.overloaded) + " / " + num(e.errors.other)],
-      ["Revoked tickets known / whitelist entries", num(e.revoked) + " / " + num(e.whitelist)]
-    ].concat(calls)), "This edge isolate") + '<p class="s">Each request may land on another isolate or data center; these values describe the one that answered.</p></section>';
+      ["Local lease", num(e.lease.remaining) + " slots, " + num(Math.max(0, e.lease.expiresInSec)) + " s left"],
+      ["Revoked tickets known", num(e.revoked)],
+      ["Whitelist entries", num(e.whitelist)]
+    ]) +
+      sub("Snapshot", null, s ? [
+        ["Age", num(s.ageMs / 1000, 1) + " s"],
+        ["TTL", num(s.ttlMs / 1000) + " s"],
+        ["Room", s.open ? "open" : "queueing"],
+        ["Configuration", "gen " + s.gen],
+        ["Cache hits / misses", num(e.cache.hits) + " / " + num(e.cache.misses)]
+      ] : [["State", "none"]]) +
+      sub("Pending deltas", null, [
+        ["Redeemed tickets", num(e.pending.redeemed)],
+        ["Lease slots used", num(e.pending.leaseUsed)],
+        ["Claims", num(e.pending.claims)],
+        ["Session minutes", num(e.pending.activeMinutes)]
+      ]) +
+      sub("Coordinator calls", null, Object.keys(e.calls).map(function (op) { return [op, num(e.calls[op])]; })) +
+      sub("Coordinator errors", null, [["Timeout", num(e.errors.timeout)], ["Overloaded", num(e.errors.overloaded)], ["Other", num(e.errors.other)]]) +
+      '<p class="s">Each request may land on another isolate or data center; these values describe the one that answered.</p>', "This edge isolate");
   }
   // Last answer of the coordinator: a failed refresh keeps it on screen (marked stale)
   // instead of replacing the whole page with an error.
@@ -224,7 +263,8 @@
     var why = skew || "coordinator did not answer";
     var stale = c ? "" : '<span class="b ' + (skew ? "warn" : "bad") + '">' + esc(why) + (last ? ", data from " + new Date(last.at).toLocaleTimeString() : "") + tip(skew ? "skew" : "stale") + "</span>";
     $("badges").innerHTML = (shown ? badges(shown) : "") + stale;
-    $("main").innerHTML = (shown ? coordinator(shown) : '<p class="bad">' + esc(why.charAt(0).toUpperCase() + why.slice(1)) + ".</p>") + (d.edge && d.build === BUILD ? edge(d.edge) : "");
+    var eb = d.edge && d.build === BUILD ? edge(d.edge) : "";
+    $("main").innerHTML = shown ? coordinator(shown, eb) : '<p class="bad">' + esc(why.charAt(0).toUpperCase() + why.slice(1)) + ".</p>" + (eb ? '<section><div class="cols">' + eb + "</div></section>" : "");
     // Wait first, to tell the rooms apart in a row of browser tabs.
     document.title = (shown ? (shown.state.paused ? "paused " : "") + wait(shown) + (c ? "" : " (stale)") + " · " : "") + d.room + " · Waiting room";
     // The refresh replaced the element under an open tooltip: follow its replacement.
@@ -276,7 +316,8 @@
     line.setAttribute("x1", x);
     line.setAttribute("x2", x);
     line.setAttribute("visibility", "visible");
-    var text = hhmm(ch.t0 + j * 60000) + "\n" + ch.labels.map(function (l, i) { return l + ": " + num(ch.series[i][j]) + "/min"; }).join("\n");
+    var text = hhmm(ch.t0 + j * 60000) + "\n" + ch.labels.map(function (l, i) { return l + ": " + num(ch.series[i][j]) + "/min"; }).join("\n") +
+      (ch.ref ? "\n" + ch.ref.label + ": " + num(ch.ref.value) + "/min" : "");
     var px = r.left + j / (ch.n - 1) * r.width;
     showAt(text, svg, px, 0, r.top, r.bottom);
   }

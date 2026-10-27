@@ -91,6 +91,8 @@ export type ReserveOutcome = { ticketNo: number; admitAtMs: number; refused?: un
 interface IsolateState {
   seq: number;
   at: number;
+  /** Cloudflare data center, unknown for isolates older than this field. */
+  colo?: string;
   /** Configuration generation the isolate held when it sent its last batch. */
   gen?: number;
   lease?: Lease;
@@ -143,8 +145,8 @@ export interface PersistedCore {
   lastBrakeAt: number;
   absenceRatio: number;
   counters: CoreCounters;
-  /** [isolateId, last batch number, last seen]: persisted with the state it produced. */
-  isolates?: [string, number, number][];
+  /** [isolateId, last batch number, last seen, data center]: persisted with the state it produced. */
+  isolates?: [string, number, number, string?][];
   /** [isolateId, slots, expiry]: leases still outstanding. */
   leases?: [string, number, number][];
   /** [ticketNo, expiry, tag of the first redemption]: replay revocations published to the edge. */
@@ -453,7 +455,7 @@ export class CoordinatorCore {
     }
     if (prev && b.seq > prev.seq + 1) this.counters.batchGaps += b.seq - prev.seq - 1;
     this.isolates.delete(b.isolateId);
-    this.isolates.set(b.isolateId, { seq: b.seq, at: now, gen: b.knownGen });
+    this.isolates.set(b.isolateId, { seq: b.seq, at: now, gen: b.knownGen, colo: b.colo ?? prev?.colo });
 
     const l = this.leases.get(b.isolateId);
     if (l) {
@@ -724,21 +726,26 @@ export class CoordinatorCore {
 
   /** Everything the dashboards show, in one request. */
   dashboard(now: number): DashboardData {
-    const isolates: DashboardData["isolates"] = { seen: 0, active: 0, leasing: 0, behind: 0, top: [] };
+    const isolates: DashboardData["isolates"] = { seen: 0, active: 0, leasing: 0, behind: 0, top: [], colos: [] };
     const rows: DashboardData["isolates"]["top"] = [];
+    const colos = new Map<string, [number, number]>();
     for (const [id, v] of this.isolates) {
       if (v.at < now - ISOLATE_TTL_MS) continue;
       isolates.seen++;
-      if (v.at > now - MINUTE_MS) {
+      const active = v.at > now - MINUTE_MS;
+      if (active) {
         isolates.active++;
         if (v.gen !== undefined && v.gen >= 0 && v.gen < this.gen) isolates.behind++;
       }
+      const dc = colos.get(v.colo ?? "?") ?? [0, 0];
+      colos.set(v.colo ?? "?", [dc[0] + 1, dc[1] + (active ? 1 : 0)]);
       const l = this.leases.get(id);
       const lease = l && l.exp >= now ? l.n : 0;
       if (lease > 0) isolates.leasing++;
-      rows.push({ id, seq: v.seq, lastSeenSec: Math.round((now - v.at) / 1000), lease });
+      rows.push({ id, colo: v.colo, seq: v.seq, lastSeenSec: Math.round((now - v.at) / 1000), lease });
     }
     isolates.top = rows.sort((a, b) => b.lease - a.lease || a.lastSeenSec - b.lastSeenSec).slice(0, DASHBOARD_ISOLATES);
+    isolates.colos = [...colos].map(([c, [seen, active]]) => [c, seen, active] as [string, number, number]).sort((a, b) => b[1] - a[1] || b[2] - a[2] || a[0].localeCompare(b[0]));
     return {
       at: now,
       state: this.state(now),
@@ -911,7 +918,7 @@ export class CoordinatorCore {
       lastBrakeAt: this.lastBrakeAt,
       absenceRatio: this.absenceRatio,
       counters: this.counters,
-      isolates: [...this.isolates].map(([id, v]) => [id, v.seq, v.at] as [string, number, number]),
+      isolates: [...this.isolates].map(([id, v]) => (v.colo ? [id, v.seq, v.at, v.colo] : [id, v.seq, v.at]) as [string, number, number, string?]),
       leases: [...this.leases].map(([id, l]) => [id, l.n, l.exp] as [string, number, number]),
       revoked: [...this.revoked].map(([t, v]) => [t, v.exp, v.tag] as [number, number, number]),
       history: this.history.entries(),
@@ -948,7 +955,7 @@ export class CoordinatorCore {
       core.history = new MinuteHistory(p.history ?? []);
       // Batch numbers come back with the state they produced: a batch applied after this state
       // was persisted is lost with its effects, and its resend is applied again.
-      for (const [id, seq, at] of p.isolates ?? []) core.isolates.set(id, { seq, at });
+      for (const [id, seq, at, colo] of p.isolates ?? []) core.isolates.set(id, colo ? { seq, at, colo } : { seq, at });
       // Revocations already published stay in force: a losing session never becomes valid again.
       for (const [t, exp, tag] of p.revoked ?? []) if (exp > now) core.revoked.set(t, { exp, tag });
       for (const [id, n, exp] of p.leases ?? []) {

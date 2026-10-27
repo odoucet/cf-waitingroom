@@ -154,6 +154,8 @@ export interface EdgeCounters {
 /** Deltas accumulated by one isolate and sent with every RPC. */
 export interface Batch {
   isolateId: string;
+  /** Cloudflare data center of the isolate (IATA code), absent before its first request with one. */
+  colo?: string;
   /** Random non-zero 32-bit tag of the isolate, stored in the session cookies it issues. */
   tag: number;
   seq: number;
@@ -246,7 +248,9 @@ export interface DashboardData {
     /** Reported within the last minute with an older configuration generation. */
     behind: number;
     /** The 10 largest leases, then the most recent reports. */
-    top: { id: string; seq: number; lastSeenSec: number; lease: number }[];
+    top: { id: string; colo?: string; seq: number; lastSeenSec: number; lease: number }[];
+    /** [data center, isolates seen, of which reported within the last minute], most isolates first; "?" when unknown. */
+    colos: [string, number, number][];
   };
   revoked: number;
   pendingNonces: number;

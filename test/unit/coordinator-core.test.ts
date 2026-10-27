@@ -299,6 +299,20 @@ describe("CoordinatorCore", () => {
     ]);
     expect(d.isolates.top.map((i) => i.id)).not.toContain("idle");
   });
+
+  it("groups the isolates by data center and keeps it across a restart", () => {
+    const c = new CoordinatorCore(cfg(), 1, T);
+    c.applyBatch(batch({ isolateId: "a", colo: "CDG", seq: 1 }), T - 1000);
+    c.applyBatch(batch({ isolateId: "b", colo: "CDG", seq: 1 }), T - 5 * 60_000);
+    c.applyBatch(batch({ isolateId: "c", colo: "AMS", seq: 1 }), T - 1000);
+    c.applyBatch(batch({ isolateId: "d", seq: 1 }), T - 1000); // older isolate: no data center
+    // A later batch without the field keeps the known data center.
+    c.applyBatch(batch({ isolateId: "c", seq: 2 }), T - 500);
+    expect(c.dashboard(T).isolates.colos).toEqual([["CDG", 2, 1], ["?", 1, 1], ["AMS", 1, 1]]);
+    expect(c.dashboard(T).isolates.top.find((i) => i.id === "a")?.colo).toBe("CDG");
+    const r = CoordinatorCore.restore(structuredClone(c.toPersisted(T)), null, c.config, c.gen, T);
+    expect(r.dashboard(T).isolates.colos).toEqual([["CDG", 2, 1], ["?", 1, 1], ["AMS", 1, 1]]);
+  });
 });
 
 describe("CoordinatorCore delivery and durability", () => {

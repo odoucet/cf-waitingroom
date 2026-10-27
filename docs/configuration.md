@@ -60,9 +60,10 @@ One page, `https://<host>/__wr/dashboard`, on the operator hostname (`ADMIN_HOST
 protected hostname. Basic auth, no external resources (strict CSP). It shows:
 
 - the room, from the coordinator: mode, rate, wait, waiting tickets, utilisation, active users;
-  per-minute charts of the last hour (admissions, tickets, waiting pages, no-shows, Durable Object
-  requests by kind, bypasses, fail-open, rows written); totals; monthly cost projection; isolates;
-  configuration;
+  per-minute charts of the last hour (admissions against the expected maximum `R` × brake, tickets,
+  waiting pages, no-shows, Durable Object requests by kind, Worker requests and early exits, bypasses,
+  fail-open, rows written); totals; monthly cost projection; isolates, their count per Cloudflare data
+  center (reported by each isolate with its batches) and the ten largest leases; configuration;
 - the isolate that answered: data center, snapshot age, local lease, pending deltas, coordinator calls
   and errors, Cache API hits.
 

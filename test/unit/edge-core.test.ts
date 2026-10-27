@@ -103,6 +103,14 @@ describe("EdgeCore decisions", () => {
     expect(edge.flushReason(T + edge.ttl())).toBe("redeemed");
   });
 
+  it("reports its data center with every batch", () => {
+    const { edge } = setup();
+    expect(edge.takeBatch(T, false).colo).toBeUndefined();
+    edge.ackBatch(edge.seq);
+    edge.colo = "CDG";
+    expect(edge.takeBatch(T + 1000, false).colo).toBe("CDG");
+  });
+
   it("sends the Worker request counts with the next batch, never flushing for them", () => {
     const { edge } = setup();
     edge.counters.workerRequests += 40;

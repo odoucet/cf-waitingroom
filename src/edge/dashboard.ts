@@ -12,17 +12,16 @@ import { DASHBOARD_TEMPLATE } from "../shared/dashboard-template.js";
 import type { AdminResult, DashboardData } from "../shared/types.js";
 import { dispatchAdmin } from "./admin.js";
 import type { EdgeEnv } from "./env.js";
-import { json } from "./http.js";
+import { coloOf, json } from "./http.js";
 import type { Isolate } from "./isolate.js";
 import { logEvent } from "./log.js";
 
 function edgeView(request: Request, iso: Isolate, now: number): EdgeView {
   const core = iso.core;
   const s = core.snapshot;
-  const colo = (request.cf as { colo?: unknown } | undefined)?.colo;
   return {
     isolateId: core.isolateId,
-    colo: typeof colo === "string" ? colo : null,
+    colo: coloOf(request) ?? null,
     uptimeSec: Math.round((now - iso.startedAt) / 1000),
     snapshot: s ? { ageMs: now - core.receivedAt, ttlMs: s.ttlMs, open: s.open, gen: core.gen } : null,
     lease: { remaining: core.lease.remaining, expiresInSec: Math.round((core.lease.exp - now) / 1000) },

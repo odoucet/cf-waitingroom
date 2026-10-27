@@ -28,8 +28,9 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
 - Reservation checks: minimum provisional cookie age, proof of work, `Sec-Fetch-Site`, and a cap on
   concurrent reservation calls per isolate (`wr_reserve_refused_total`).
 - Dashboard behind basic auth: current state, per-minute usage over the last hour (hover or tap a
-  chart for the values of a minute), totals, cost projection, isolate counts (last 10 minutes, last
-  minute, holding a lease, on an older configuration) with the ten largest leases, a help tooltip on
+  chart for the values of a minute; admissions against a dashed expected maximum, `R` × brake),
+  totals, cost projection, isolate counts (last 10 minutes, last minute, holding a lease, on an older
+  configuration), isolates per Cloudflare data center, the ten largest leases, a help tooltip on
   every figure (hover, keyboard focus or tap), the current wait in the tab title, a warning when the
   page, the edge and the coordinator run different deployments (`version_metadata` binding
   `CF_VERSION_METADATA`), and live controls served by

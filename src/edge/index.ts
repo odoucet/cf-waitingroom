@@ -27,7 +27,7 @@ import { handleDashboard, handleDashboardAdmin } from "./dashboard.js";
 import { isEarlyExit } from "./early-exit.js";
 import { baseConfigError, type EdgeEnv, failModeOf, staleTtlsOf } from "./env.js";
 import { adminHostsSet, isAdminHost } from "./hosts.js";
-import { clientIp, json, readBodyLimited, withCookies } from "./http.js";
+import { clientIp, coloOf, json, readBodyLimited, withCookies } from "./http.js";
 import { getIsolate, type Isolate } from "./isolate.js";
 import { logEvent } from "./log.js";
 import { handleMetrics, METRICS_PATH } from "./metrics.js";
@@ -464,6 +464,8 @@ export default {
       iso.core.counters.earlyExits++;
       return fetch(request);
     }
+    // An isolate never moves: its data center, reported with its batches, is set once.
+    iso.core.colo ??= coloOf(request);
     const reserved = operatorHost || url.pathname.startsWith("/__wr/");
     // The preflight check reports configuration errors: it must answer before they are refused.
     if (url.pathname === PREFLIGHT_PATH && (operatorHost || !adminHostsSet(env))) return handleAdmin(request, url, env, iso);

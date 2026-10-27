@@ -41,6 +41,8 @@ function addDelta(m: Map<number, number>, minute: number, d: number): void {
 export class EdgeCore {
   readonly isolateId: string;
   readonly tag: number;
+  /** Cloudflare data center, set by the Worker from the first request that carries it. */
+  colo: string | undefined;
   seq = 0;
   since: number;
   snapshot: Snapshot | null = null;
@@ -201,6 +203,7 @@ export class EdgeCore {
     }
     const b: Batch = {
       isolateId: this.isolateId,
+      colo: this.colo,
       tag: this.tag,
       seq: ++this.seq,
       since: this.since,

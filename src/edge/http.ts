@@ -17,6 +17,12 @@ export function privateCacheControl(cc: string | null): string {
   return (kept.some((d) => NOT_SHARED.test(d)) ? kept : ["private", ...kept]).join(", ");
 }
 
+/** Cloudflare data center (IATA code) that received the request, if known. */
+export function coloOf(request: Request): string | undefined {
+  const colo = (request.cf as { colo?: unknown } | undefined)?.colo;
+  return typeof colo === "string" ? colo : undefined;
+}
+
 /**
  * Adds Set-Cookie headers to an origin response without reading its body
  * (streamed), and makes it private to the browser. WebSocket upgrades are
