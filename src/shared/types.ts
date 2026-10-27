@@ -232,8 +232,18 @@ export interface DashboardData {
   metrics: CoordinatorMetrics;
   /** Per-minute series over the last hour, oldest first; the last value is the current minute. */
   history: Record<string, number[]>;
-  /** Isolates seen within the last 10 minutes, most recent first (at most 100). */
-  isolates: { id: string; seq: number; lastSeenSec: number; lease: number }[];
+  /** Isolates seen within the last 10 minutes. */
+  isolates: {
+    seen: number;
+    /** Reported within the last minute (wr_coordinator_isolates). */
+    active: number;
+    /** Holding a lease that has not expired. */
+    leasing: number;
+    /** Reported within the last minute with an older configuration generation. */
+    behind: number;
+    /** The 10 largest leases, then the most recent reports. */
+    top: { id: string; seq: number; lastSeenSec: number; lease: number }[];
+  };
   revoked: number;
   pendingNonces: number;
   /** Tickets held by the ledger (waiting, plus due but not evaluated yet). */

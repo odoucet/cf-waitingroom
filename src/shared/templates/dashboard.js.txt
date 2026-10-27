@@ -45,7 +45,11 @@
     "DO duration (GB-s)": "Time the coordinator stays active, in memory × seconds.\nIncluded: 400,000 GB-s a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
     "SQLite rows": "Writes to the coordinator storage.\nIncluded: 50 million a month in the Workers Paid plan.\nBeyond: estimated cost of the excess.",
     "DO requests by kind and mode (total)": "Technical: calls to the coordinator since the room was created, by kind and by room state.",
-    "Isolates seen in the last 10 minutes": "Technical: server instances that reported recently.\nLast report: time since their last call.\nLease: admission slots they hold in advance.",
+    "Isolates": "Technical: server instances that reported in the last 10 minutes. The table lists the 10 holding the most admission slots in advance (lease), then the most recent.\nLast report: time since their last call.\nBatches: reports sent since the instance started.",
+    "Seen in the last 10 minutes": "Server instances that reported at least once in the last 10 minutes. Busy sites run hundreds of them.",
+    "Reported in the last minute": "Instances counted as active: the lease share of each one depends on this number.",
+    "Holding a lease": "Instances that hold admission slots in advance, not used yet.",
+    "On an older configuration": "Active instances still working with a previous configuration. Normal for a few seconds after a change; lasting, a change did not reach every instance.",
     "This edge isolate": "Technical: the server instance that answered this page, in the Cloudflare data center closest to you. Useful for diagnosis only; another refresh may land on another instance.",
     "Snapshot": "Copy of the room state this instance works with, and its age. Refreshed every few seconds.",
     "Local lease": "Admission slots this instance holds in advance.",
@@ -172,7 +176,12 @@
         ["SQLite rows", num(lab(m, "wr_usage_projection", "item", "do_rows_written")), "50 M", usd(lab(m, "wr_cost_projection_usd", "item", "do_rows_written"))]
       ], true) + '<p class="s">Coordinator usage if the last hour lasted the whole month, against what the Workers Paid plan includes. Ignores the other Workers of the account and the requests of this Worker itself.</p></div>' +
       box("DO requests by kind and mode (total)", table(null, reqRows)) +
-      box("Isolates seen in the last 10 minutes", table(["Isolate", "Last report", "Batches", "Lease"], c.isolates.map(function (i) { return [i.id, dur(i.lastSeenSec) + " ago", num(i.seq), num(i.lease)]; }))) +
+      box("Isolates", table(null, [
+        ["Seen in the last 10 minutes", num(c.isolates.seen)],
+        ["Reported in the last minute", num(c.isolates.active)],
+        ["Holding a lease", num(c.isolates.leasing)],
+        ["On an older configuration", num(c.isolates.behind)]
+      ]) + '<p class="s">Largest leases first, then the most recent reports.</p>' + table(["Isolate", "Last report", "Batches", "Lease"], c.isolates.top.map(function (i) { return [i.id, dur(i.lastSeenSec) + " ago", num(i.seq), num(i.lease)]; }))) +
       "</div></section>";
     return html;
   }

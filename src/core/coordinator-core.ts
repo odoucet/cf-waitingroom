@@ -30,6 +30,8 @@ const ABSENCE_MAX = 0.9;
 const ISOLATE_TTL_MS = 10 * MINUTE_MS;
 /** Isolates whose last batch number is remembered (the oldest are forgotten first). */
 const ISOLATES_MAX = 10_000;
+/** Isolates listed on the dashboards (the largest leases first). */
+const DASHBOARD_ISOLATES = 10;
 /** Clock difference tolerated between the edge that signed a provisional cookie and the coordinator. */
 const CLOCK_SKEW_SEC = 5;
 /**
@@ -719,10 +721,21 @@ export class CoordinatorCore {
 
   /** Everything the dashboards show, in one request. */
   dashboard(now: number): DashboardData {
-    const isolates = [...this.isolates]
-      .map(([id, v]) => ({ id, seq: v.seq, lastSeenSec: Math.round((now - v.at) / 1000), lease: this.leases.get(id)?.n ?? 0 }))
-      .sort((a, b) => a.lastSeenSec - b.lastSeenSec)
-      .slice(0, 100);
+    const isolates: DashboardData["isolates"] = { seen: 0, active: 0, leasing: 0, behind: 0, top: [] };
+    const rows: DashboardData["isolates"]["top"] = [];
+    for (const [id, v] of this.isolates) {
+      if (v.at < now - ISOLATE_TTL_MS) continue;
+      isolates.seen++;
+      if (v.at > now - MINUTE_MS) {
+        isolates.active++;
+        if (v.gen !== undefined && v.gen >= 0 && v.gen < this.gen) isolates.behind++;
+      }
+      const l = this.leases.get(id);
+      const lease = l && l.exp >= now ? l.n : 0;
+      if (lease > 0) isolates.leasing++;
+      rows.push({ id, seq: v.seq, lastSeenSec: Math.round((now - v.at) / 1000), lease });
+    }
+    isolates.top = rows.sort((a, b) => b.lease - a.lease || a.lastSeenSec - b.lastSeenSec).slice(0, DASHBOARD_ISOLATES);
     return {
       at: now,
       state: this.state(now),

@@ -254,8 +254,27 @@ describe("CoordinatorCore", () => {
     expect(last("bypass")).toBe(2);
     // Lease usage is placed at the minute it happened, not when it was reported.
     expect(d.history.adm_lease!.at(-2)).toBe(3);
-    expect(d.isolates).toEqual([{ id: "a", seq: 1, lastSeenSec: 0, lease: 0 }]);
+    expect(d.isolates.top).toEqual([{ id: "a", seq: 1, lastSeenSec: 0, lease: 0 }]);
     expect(d.state.mode).toBe("on");
+  });
+
+  it("counts the isolates for the dashboards and lists the largest leases first", () => {
+    const c = new CoordinatorCore(cfg({ leaseBlockMax: 3 }), 1, T);
+    c.applyBatch(batch({ isolateId: "gone", seq: 1 }), T - 11 * 60_000);
+    c.applyBatch(batch({ isolateId: "idle", seq: 1 }), T - 5 * 60_000);
+    c.applyBatch(batch({ isolateId: "behind", seq: 3, knownGen: 0 }), T - 2000);
+    for (let i = 0; i < 12; i++) c.applyBatch(batch({ isolateId: `e${i}`, seq: 1 }), T - 1000);
+    c.receiveBatch(batch({ isolateId: "small", seq: 1, leaseWanted: 2 }), T - 3000);
+    c.receiveBatch(batch({ isolateId: "big", seq: 1, leaseWanted: 50 }), T - 4000);
+    const d = c.dashboard(T);
+    expect(d.isolates).toMatchObject({ seen: 16, active: 15, leasing: 2, behind: 1 });
+    expect(d.isolates.top).toHaveLength(10);
+    expect(d.isolates.top.slice(0, 3)).toEqual([
+      { id: "big", seq: 1, lastSeenSec: 4, lease: 3 },
+      { id: "small", seq: 1, lastSeenSec: 3, lease: 2 },
+      { id: "e0", seq: 1, lastSeenSec: 1, lease: 0 },
+    ]);
+    expect(d.isolates.top.map((i) => i.id)).not.toContain("idle");
   });
 });
 
