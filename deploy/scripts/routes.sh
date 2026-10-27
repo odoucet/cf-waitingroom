@@ -9,21 +9,29 @@
 #   CLOUDFLARE_API_TOKEN  token with the Workers Routes > Edit permission on the zone. wrangler
 #                  reads the same variable and prefers it to `wrangler login`: export it only
 #                  for this script, or give the token the Workers Scripts permission too.
+#                  When unset, the OAuth token of the `wrangler login` session is used
+#                  (`wrangler auth token`, never printed).
 #   ZONE_ID        zone identifier
 #   HOSTS          space-separated hostnames            e.g. "shop.example.com"
 #   PROTECTED      space-separated path patterns        default "/*"
 #   EXCLUDED       space-separated path patterns        e.g. "/static/* /api/* /webhooks/*"
 #   SCRIPT         Worker name                          default "waitingroom"
 #   PREFLIGHT_URL  https://<operator host>/__wr/admin/v1/preflight, checked by `apply`
-#   WR_ADMIN_TOKEN admin token, for the preflight call
+#   WR_ADMIN_TOKEN admin token, for the preflight call and the whitelist
 #   SKIP_PREFLIGHT set to 1 to create the routes without the check (not recommended)
+#   WHITELIST      space-separated "cidr=label" entries  e.g. "198.51.100.0/24=office 203.0.113.7=probe"
+#   WHITELIST_PRUNE set to 1 to also remove the whitelist entries missing from WHITELIST
+#                  (otherwise entries added from the dashboard or the admin API are kept)
+#   ADMIN_URL      https://<operator host>/__wr/admin/v1   default: PREFLIGHT_URL without /preflight
 #
 # Usage: routes.sh plan | apply | delete [config file]
 #   plan    prints what apply would do (create, update a route pointing elsewhere, nothing)
-#   apply   checks that the Worker is ready (preflight), then converges the routes listed by
+#   apply   checks that the Worker is ready (preflight), converges the whitelist when WHITELIST
+#           or WHITELIST_PRUNE is set, then converges the routes listed by
 #           HOSTS/PROTECTED/EXCLUDED: missing ones are created, drifted ones updated (idempotent)
 #   delete  removes those routes only, and only when they still point where this script put them
-#           (rollback); other routes of the zone, even to SCRIPT, are left untouched
+#           (rollback); other routes of the zone, even to SCRIPT, are left untouched; the whitelist
+#           is left untouched
 # Patterns and scripts are compared exactly (jq), never as regular expressions.
 # The verified-bot Transform Rules are created by hand (docs/routing.md#verified-bots).
 set -euo pipefail
@@ -44,10 +52,23 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CF_API_TOKEN:-}" ]; then
   echo "CF_API_TOKEN is deprecated, use CLOUDFLARE_API_TOKEN" >&2
   CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"
 fi
-: "${CLOUDFLARE_API_TOKEN:?}" "${ZONE_ID:?}" "${HOSTS:?}"
+# The `wrangler login` session has the workers_routes:write scope. Run from the repository so the
+# project's wrangler is used; the token is kept in this shell only.
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  CLOUDFLARE_API_TOKEN="$(cd "$(dirname "$0")/../.." && npx --no-install wrangler auth token 2>/dev/null | tail -n 1 | tr -d '[:space:]')" \
+    || CLOUDFLARE_API_TOKEN=""
+  if ! [[ "$CLOUDFLARE_API_TOKEN" =~ ^[A-Za-z0-9._-]{20,}$ ]]; then
+    echo "no CLOUDFLARE_API_TOKEN, and no usable \`wrangler login\` session (npx wrangler login, or export the token)" >&2
+    exit 2
+  fi
+  echo "using the OAuth token of the wrangler session" >&2
+fi
+: "${ZONE_ID:?}" "${HOSTS:?}"
 PROTECTED="${PROTECTED:-/*}"
 EXCLUDED="${EXCLUDED:-}"
 SCRIPT="${SCRIPT:-waitingroom}"
+WHITELIST="${WHITELIST:-}"
+ADMIN_URL="${ADMIN_URL:-${PREFLIGHT_URL:+${PREFLIGHT_URL%/preflight}}}"
 API="https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/workers/routes"
 
 # Cloudflare API call: prints the response body, or explains the error and fails.
@@ -65,6 +86,22 @@ api() {
       echo "(dash.cloudflare.com/<account ID>/...). Open your domain > Overview: Zone ID is in the right column, under API." >&2
       echo "Then check CLOUDFLARE_API_TOKEN: Workers Routes > Edit, with this zone in Zone Resources." >&2
       ;;
+  esac
+  return 1
+}
+
+# Admin API call of the Worker: prints the response body, or explains the error and fails.
+admin() {
+  local out code
+  out="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer ${WR_ADMIN_TOKEN}" -H "Content-Type: application/json" "$@")" \
+    || { echo "admin API unreachable (ADMIN_URL=${ADMIN_URL})" >&2; return 1; }
+  code="${out##*$'\n'}"
+  out="${out%$'\n'*}"
+  if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then printf '%s\n' "$out"; return; fi
+  echo "admin API error, HTTP ${code}: $(jq -r '.error // empty' <<<"$out" 2>/dev/null || printf '%s' "$out")" >&2
+  case "$code" in
+    401) echo "Check WR_ADMIN_TOKEN: same value as the Worker secret." >&2 ;;
+    404) echo "Check ADMIN_URL (${ADMIN_URL}): an operator hostname (ADMIN_HOSTS), ending in /__wr/admin/v1." >&2 ;;
   esac
   return 1
 }
@@ -95,6 +132,38 @@ actions() {
 }
 
 body() { jq -nc --arg p "$1" --argjson s "$2" 'if $s == null then {pattern: $p} else {pattern: $p, script: $s} end'; }
+
+wl_managed() { [ -n "$WHITELIST" ] || [ "${WHITELIST_PRUNE:-}" = "1" ]; }
+
+# Whitelist managed by this script: [{cidr, label}] (labels cut to 64 characters, like the Worker).
+wl_wanted() {
+  for e in $WHITELIST; do printf '%s\n' "$e"; done \
+    | jq -Rn '[inputs | capture("^(?<cidr>[^=]+)(=(?<label>.*))?$") | {cidr, label: ((.label // "")[0:64])}] | unique_by(.cidr)'
+}
+
+# One action per entry: add, update (other label), ok, and for entries missing from WHITELIST,
+# remove (WHITELIST_PRUNE=1) or keep.
+wl_actions() {
+  jq -n --argjson want "$WL_WANT" --argjson have "$WL_HAVE" --arg prune "${WHITELIST_PRUNE:-}" '
+    ($want[] as $w
+      | ([$have[] | select(.cidr == $w.cidr)] | first) as $e
+      | if $e == null then {op: "add", cidr: $w.cidr, label: $w.label}
+        elif $e.label != $w.label then {op: "update", cidr: $w.cidr, label: $w.label, was: $e.label}
+        else {op: "ok", cidr: $w.cidr, label: $w.label} end),
+    ($have[] | . as $e | select(all($want[]; .cidr != $e.cidr))
+      | {op: (if $prune == "1" then "remove" else "keep" end), cidr, label})'
+}
+
+# One POST for the additions and label changes, one DELETE for the removals.
+wl_apply() {
+  local add del
+  add="$(jq -c '[.[] | select(.op == "add" or .op == "update") | {cidr, label}]' <<<"$WL")"
+  del="$(jq -c '[.[] | select(.op == "remove") | .cidr]' <<<"$WL")"
+  if [ "$add" != "[]" ]; then admin -X POST "${ADMIN_URL}/whitelist" -d "{\"entries\":${add}}" >/dev/null; fi
+  if [ "$del" != "[]" ]; then admin -X DELETE "${ADMIN_URL}/whitelist" -d "{\"cidrs\":${del}}" >/dev/null; fi
+  jq -r '.[] | {add: "whitelisted ", update: "relabeled   ", ok: "ok          ", remove: "unlisted    ", keep: "kept        "}[.op]
+    + "\(.cidr) (\(.label))" + (if .op == "keep" then ", not in WHITELIST" else "" end)' <<<"$WL"
+}
 
 # Where to find the result in the Cloudflare dashboard.
 where() {
@@ -131,6 +200,14 @@ if [ "${1:-plan}" = "apply" ]; then preflight; fi
 # Computed here, not inside pipelines, so that an API error stops the script before any change.
 WANT="$(wanted)"
 HAVE="$(existing)"
+# Whitelist actions; plan compares only when the admin token is there, apply requires it.
+WL="[]"
+if [ "${1:-plan}" != "delete" ] && wl_managed && { [ "${1:-plan}" = "apply" ] || [ -n "${WR_ADMIN_TOKEN:-}" ]; }; then
+  : "${ADMIN_URL:?set ADMIN_URL or PREFLIGHT_URL to manage the whitelist}" "${WR_ADMIN_TOKEN:?}"
+  WL_WANT="$(wl_wanted)"
+  WL_HAVE="$(admin "${ADMIN_URL}/whitelist")"
+  WL="$(wl_actions | jq -s '.')"
+fi
 
 case "${1:-plan}" in
   plan)
@@ -139,6 +216,15 @@ case "${1:-plan}" in
     PLAN="$(actions | jq -sr '.[] | (if .op == "create" then "  would create " elif .op == "update" then "  would update " else "  unchanged    " end)
       + "\(.pattern) -> \(.script // "(no Worker)")"
       + (if .op == "update" then " (currently \(.was // "no Worker"))" else "" end)')"
+    if wl_managed; then
+      if [ -z "${WR_ADMIN_TOKEN:-}" ]; then
+        PLAN+=$'\n\n'"  whitelist not compared: export WR_ADMIN_TOKEN"
+      else
+        PLAN+=$'\n\n'"$(jq -r '.[] | {add: "  would whitelist ", update: "  would relabel   ", ok: "  unchanged       ", remove: "  would unlist    ", keep: "  kept            "}[.op]
+          + "\(.cidr) (\(.label))"
+          + (if .op == "update" then " (currently \(.was))" elif .op == "keep" then ", not in WHITELIST" else "" end)' <<<"$WL")"
+      fi
+    fi
     echo "$PLAN"
     echo
     if grep -q "would " <<<"$PLAN"; then
@@ -149,6 +235,8 @@ case "${1:-plan}" in
     exit 0
     ;;
   apply)
+    # Before the routes, so that whitelisted addresses never wait.
+    if wl_managed; then wl_apply; echo; fi
     actions | jq -c '.' | while read -r a; do
       op="$(jq -r .op <<<"$a")"
       pattern="$(jq -r .pattern <<<"$a")"

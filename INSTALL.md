@@ -223,6 +223,15 @@ them in another shell, `unset CLOUDFLARE_API_TOKEN` first, or add **Workers Scri
 
 Without a file argument, the script reads `deploy/routes.env`.
 
+Without `CLOUDFLARE_API_TOKEN`, the script uses the OAuth token of your `wrangler login` session
+(`wrangler auth token`), which has the Workers Routes permission: no API token to create, and no
+conflict with `wrangler deploy`. The account must own the zone.
+
+The config file can also carry the IP whitelist: `WHITELIST="198.51.100.0/24=office 203.0.113.7=probe"`.
+`plan` compares it with the Worker's (when `WR_ADMIN_TOKEN` is exported), and `apply` sends it through
+the admin API before creating the routes. Entries added from the dashboard are kept, unless
+`WHITELIST_PRUNE=1`.
+
 ### Optional: let verified search engines skip the queue
 
 Without this, verified bots go through the room like any visitor (no ticket without JavaScript). To

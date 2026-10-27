@@ -17,6 +17,7 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
 - Pause, kill switch (`mode: off`), `queue_all`. The queue keeps its place during a pause of any
   length, and the lease backlog is shifted like the tickets.
 - Whitelist: IP/CIDR, verified bots (Transform Rules), secret header, signed links.
+- `routes.sh` manages the IP whitelist from the config file (`WHITELIST`, `WHITELIST_PRUNE`).
 - Admin API v1, Prometheus metrics, cost projection.
 - Coordinator state, per-minute history included, written by an alarm 5 s after a change: the object
   hibernates after 10 s without traffic and loses its memory, and a quiet period loses nothing.
