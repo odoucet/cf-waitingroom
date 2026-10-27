@@ -117,7 +117,7 @@
   // Per-minute series: the last value is the current (partial) minute; only complete minutes
   // are plotted. Each chart keeps its values for the hover tooltip.
   var charts = {};
-  // opts.tall: spans two grid rows; opts.ref: {label, value}, a dashed horizontal line (expected maximum).
+  // opts.big: spans two grid rows and, when there is room, two columns; opts.ref: {label, value}, a dashed horizontal line (expected maximum).
   function chart(hist, at, title, keys, labels, opts) {
     opts = opts || {};
     var max = 1, top = 1, n = 0, len = 0, ref = opts.ref;
@@ -137,7 +137,7 @@
       s.forEach(function (v) { sum += v; });
       return '<span class="c' + i + '">' + esc(labels[i]) + ": " + num(s[n - 1] || 0) + "/min · 1 h " + num(sum) + "</span>";
     }).join("") + (ref ? '<span class="mut">- - ' + esc(ref.label) + ": " + num(ref.value) + "/min</span>" : "");
-    return '<div class="chart' + (opts.tall ? " tall" : "") + '" data-c="' + esc(title) + '"><div class="k">' + esc(title) + tip(title) + " <span class=\"mut\">(max " + num(max) + "/min)</span></div>" +
+    return '<div class="chart' + (opts.big ? " big" : "") + '" data-c="' + esc(title) + '"><div class="k">' + esc(title) + tip(title) + " <span class=\"mut\">(max " + num(max) + "/min)</span></div>" +
       '<svg viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="' + esc(title) + '">' + lines +
       '<line x1="0" x2="0" y1="0" y2="64" visibility="hidden"/></svg><div class="lg">' + legend + "</div></div>";
   }
@@ -163,7 +163,7 @@
     ]) + "</section>";
     html += "<section><h2>Last hour, per minute" + tip("Last hour, per minute") + '</h2><div class="charts">' +
       chart(h, c.at, "Admissions", ["adm_lease", "adm_ticket"], ["open (lease)", "from queue"],
-        { tall: true, ref: cfg.admissionsPerMinute ? { label: s.brakeFactor < 1 ? "expected max (R × brake)" : "expected max (R)", value: cfg.admissionsPerMinute * s.brakeFactor } : null }) +
+        { big: true, ref: cfg.admissionsPerMinute ? { label: s.brakeFactor < 1 ? "expected max (R × brake)" : "expected max (R)", value: cfg.admissionsPerMinute * s.brakeFactor } : null }) +
       chart(h, c.at, "Queue", ["reserved", "waiting", "absent"], ["tickets", "waiting pages", "no-shows"]) +
       chart(h, c.at, "Whitelist and failures", ["bypass", "fail_open", "replays"], ["bypass", "fail-open", "replays"]) +
       chart(h, c.at, "Durable Object requests", ["req_flush", "req_reserve", "req_snapshot", "req_admin", "req_alarm"], ["flush", "reserve", "snapshot", "admin", "alarm"]) +
