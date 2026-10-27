@@ -25,6 +25,11 @@ Each scrape costs one Durable Object request (the coordinator renders the text):
 requests a month, well inside the included million. Every series carries a `room` label; several
 rooms (one Worker each) can share the job.
 
+With the Prometheus Operator (Kubernetes), apply `deploy/grafana/scrapeconfig.yaml` instead: a
+`ScrapeConfig`, since a `ServiceMonitor` only scrapes Services inside the cluster. Its header lists
+the values to replace, the credentials Secret to create and the selector the Prometheus resource
+needs.
+
 Check: `curl -u prometheus:<password> https://waitingroom.<account-subdomain>.workers.dev/__wr/metrics`
 must answer the Prometheus text, starting with `wr_build_info`.
 

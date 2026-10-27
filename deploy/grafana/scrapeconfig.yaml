@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Prometheus Operator scrape of the Worker metrics (docs/monitoring.md), the
+# Kubernetes equivalent of the scrape_configs job documented there.
+#
+# A ServiceMonitor only scrapes the endpoints of a Service inside the cluster
+# (an ExternalName Service has none); the Worker is an external HTTPS host, so
+# this is a ScrapeConfig (monitoring.coreos.com/v1alpha1, Prometheus Operator
+# 0.65 or later).
+#
+# 1. Replace <namespace>, <account-subdomain> and the `release` label below.
+# 2. Create the credentials Secret in the same namespace (never commit it):
+#      kubectl -n <namespace> create secret generic wr-metrics \
+#        --from-literal=username=prometheus --from-literal=password='<WR_METRICS_PASSWORD>'
+# 3. The Prometheus resource must select this object: spec.scrapeConfigSelector
+#    (and spec.scrapeConfigNamespaceSelector when it lives in another namespace).
+#    With kube-prometheus-stack, the chart selects its own `release` label by
+#    default, or set prometheus.prometheusSpec.scrapeConfigSelectorNilUsesHelmValues=false
+#    to select every ScrapeConfig.
+# 4. kubectl apply -f deploy/grafana/scrapeconfig.yaml
+#
+# Prometheus needs egress to the Internet on 443 (check the NetworkPolicies and
+# any proxy). One scrape is one Durable Object request: keep 30 s or more.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: waiting-room
+  namespace: <namespace>
+  labels:
+    release: kube-prometheus-stack
+spec:
+  scheme: HTTPS
+  metricsPath: /__wr/metrics
+  scrapeInterval: 30s
+  staticConfigs:
+    # One target per Worker (room); every series carries a `room` label.
+    - targets:
+        - waitingroom.<account-subdomain>.workers.dev
+  basicAuth:
+    username:
+      name: wr-metrics
+      key: username
+    password:
+      name: wr-metrics
+      key: password
