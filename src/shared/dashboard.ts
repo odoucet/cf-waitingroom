@@ -34,6 +34,8 @@ export interface EdgeView {
 export interface DashboardPayload {
   room: string;
   now: number;
+  /** Deployment version id of the edge ("" without the version_metadata binding). */
+  build: string;
   /** null when the coordinator did not answer. */
   coordinator: DashboardData | null;
   edge: EdgeView;
@@ -41,9 +43,10 @@ export interface DashboardPayload {
 
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" };
 
-export function renderDashboardPage(request: Request, template: string): Response {
+/** build: deployment version id, compared by the page with the one of its data. */
+export function renderDashboardPage(request: Request, template: string, build: string): Response {
   const nonce = randomHex(12);
-  const html = template.replaceAll("{{NONCE}}", nonce);
+  const html = template.replaceAll("{{NONCE}}", nonce).replaceAll("{{BUILD}}", build.replace(/[^\w-]/g, ""));
   return new Response(request.method === "HEAD" ? null : html, {
     headers: {
       ...HEADERS,

@@ -246,6 +246,8 @@ export interface DashboardData {
   };
   revoked: number;
   pendingNonces: number;
+  /** Deployment version id of the coordinator (set by the Durable Object, "" without the binding). */
+  build?: string;
   /** Tickets held by the ledger (waiting, plus due but not evaluated yet). */
   ledgerTickets: number;
 }

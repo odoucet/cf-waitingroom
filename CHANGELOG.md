@@ -26,7 +26,9 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
 - Dashboard behind basic auth: current state, per-minute usage over the last hour (hover or tap a
   chart for the values of a minute), totals, cost projection, isolate counts (last 10 minutes, last
   minute, holding a lease, on an older configuration) with the ten largest leases, a help tooltip on
-  every figure (hover, keyboard focus or tap), the current wait in the tab title, and live controls served by
+  every figure (hover, keyboard focus or tap), the current wait in the tab title, a warning when the
+  page, the edge and the coordinator run different deployments (`version_metadata` binding
+  `CF_VERSION_METADATA`), and live controls served by
   `/__wr/dashboard/admin/*` with the admin API validation and a same-origin check against CSRF: mode,
   pause, rate and session duration in the top bar; whitelist, settings (JSON patch and current
   configuration) and signed links in overlays. The dashboard credentials grant administration;

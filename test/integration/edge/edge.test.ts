@@ -866,6 +866,15 @@ describe("dashboard", () => {
     expect((await new Browser(auth).get("/__wr/dashboard", { method: "POST" })).status).toBe(405);
   });
 
+  it("tags the page and its data with the deployment version", async () => {
+    const b = new Browser(auth);
+    const build = /data-build="([^"]*)"/.exec(await (await b.get("/__wr/dashboard")).text())![1];
+    const d = (await (await b.get("/__wr/dashboard/data")).json()) as { build: string; coordinator: { build: string } };
+    expect(build).toMatch(/^[\w-]+$/);
+    expect(d.build).toBe(build);
+    expect(d.coordinator.build).toBe(build);
+  });
+
   it("serves the page with a strict CSP", async () => {
     const r = await new Browser(auth).get("/__wr/dashboard");
     expect(r.status).toBe(200);

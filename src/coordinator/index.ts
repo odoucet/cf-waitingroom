@@ -11,12 +11,14 @@ import { DurableObject } from "cloudflare:workers";
 import { AdminError, CoordinatorCore, type RequestKind } from "../core/coordinator-core.js";
 import { bootstrapConfig, ConfigError, mergeConfig, DEFAULT_CONFIG } from "../shared/config.js";
 import { renderPrometheus } from "../shared/prometheus.js";
-import type { AdminOp, AdminResult, Batch, CoordinatorRpc, ReserveOptions, ReserveResult, Snapshot } from "../shared/types.js";
+import type { AdminOp, AdminResult, Batch, CoordinatorRpc, DashboardData, ReserveOptions, ReserveResult, Snapshot } from "../shared/types.js";
 import { Storage } from "./storage.js";
 
 export interface CoordinatorEnv {
   /** JSON patch applied on top of the defaults when the room has no stored configuration. */
   WR_BOOTSTRAP_CONFIG?: string;
+  /** Deployment version (version_metadata binding), returned with the dashboard data. */
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
 
 
@@ -171,6 +173,7 @@ export class Coordinator extends DurableObject<CoordinatorEnv> implements Coordi
       if (op.op !== "state" && op.op !== "metrics" && op.op !== "dashboard") {
         console.log({ event: "admin_change", op: op.op, gen: this.core.gen, mode: this.core.config.mode, paused: this.core.pause.paused });
       }
+      if (op.op === "dashboard") return { ok: true, data: { ...(data as DashboardData), build: this.env.CF_VERSION_METADATA?.id ?? "" } };
       return { ok: true, data };
     } catch (e) {
       if (e instanceof ConfigError || e instanceof AdminError) return { ok: false, error: e.message };

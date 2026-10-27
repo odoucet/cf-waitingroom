@@ -3,6 +3,8 @@
 (function () {
   "use strict";
   var REFRESH_MS = 10000;
+  // Deployment that served this page: data from another one may not match this code.
+  var BUILD = document.documentElement.getAttribute("data-build") || "";
   var auto = true;
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; }); }
@@ -15,6 +17,7 @@
     "queueing": "New visitors see the waiting page and get a place in the queue, with the exact time they will enter.",
     "brake": "Safety brake on the admission rate: the estimated number of active users is above the brake threshold.\n1: no braking.\n0.5: rate halved.",
     "stale": "The last refresh failed. The figures shown are those of the time indicated; the page keeps retrying.",
+    "skew": "A deployment is under way or incomplete: this page, the server instance that answered and the coordinator do not all run the same version. Data of another version is not shown, its format may differ. Usually gone within a minute; reload the page if it lasts.",
     "Now": "Current state of the room. Figures refresh every 10 seconds.",
     "Utilisation (1 min)": "Visitors admitted over the last minute compared with the admission rate. Near 100 %, the site takes in as many new visitors as it accepts, and newcomers start to queue.\nCalm: plenty of room left.",
     "Current wait": "How long a visitor arriving now would wait before entering the site.\nNone: no queue.\nAfter the pause: admissions are paused; the wait once they resume, the pause itself not included.",
@@ -204,14 +207,18 @@
   var last = null;
   function render(d) {
     $("room").textContent = d.room;
-    var c = d.coordinator;
+    // Version of the edge, then of the coordinator, against the page (all "" without the binding).
+    var skew = d.build !== BUILD ? "this page and the server run different versions" :
+      d.coordinator && d.coordinator.build !== BUILD ? "coordinator on another version" : "";
+    var c = skew ? null : d.coordinator;
     if (c) last = { c: c, at: d.now };
     var shown = c || (last && last.c);
-    $("meta").textContent = "v" + d.version + (shown ? " · config gen " + shown.state.gen : "") + " · " + new Date(d.now).toLocaleTimeString();
+    $("meta").textContent = "v" + d.version + (BUILD ? " (" + BUILD.slice(0, 8) + ")" : "") + (shown ? " · config gen " + shown.state.gen : "") + " · " + new Date(d.now).toLocaleTimeString();
     if (c) updateControls(c.state);
-    var stale = c ? "" : '<span class="b bad">coordinator did not answer' + (last ? ", data from " + new Date(last.at).toLocaleTimeString() : "") + tip("stale") + "</span>";
+    var why = skew || "coordinator did not answer";
+    var stale = c ? "" : '<span class="b ' + (skew ? "warn" : "bad") + '">' + esc(why) + (last ? ", data from " + new Date(last.at).toLocaleTimeString() : "") + tip(skew ? "skew" : "stale") + "</span>";
     $("badges").innerHTML = (shown ? badges(shown) : "") + stale;
-    $("main").innerHTML = (shown ? coordinator(shown) : '<p class="bad">The coordinator did not answer.</p>') + (d.edge ? edge(d.edge) : "");
+    $("main").innerHTML = (shown ? coordinator(shown) : '<p class="bad">' + esc(why.charAt(0).toUpperCase() + why.slice(1)) + ".</p>") + (d.edge && d.build === BUILD ? edge(d.edge) : "");
     // Wait first, to tell the rooms apart in a row of browser tabs.
     document.title = (shown ? (shown.state.paused ? "paused " : "") + wait(shown) + (c ? "" : " (stale)") + " · " : "") + d.room + " · Waiting room";
     // The refresh replaced the element under an open tooltip: follow its replacement.

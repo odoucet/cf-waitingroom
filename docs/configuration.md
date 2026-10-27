@@ -77,6 +77,13 @@ The page refreshes every 10 s while visible. Each refresh is one Durable Object 
 hour with the page open). The per-minute history is kept in memory: it restarts empty after a coordinator restart,
 while the totals are persisted.
 
+With the `version_metadata` binding (`CF_VERSION_METADATA`, in `waitingroom.example.jsonc`), the page,
+its data and the coordinator carry the id of the deployment that produced them. While a deployment
+propagates, data from another version is not shown: a `coordinator on another version` badge (or
+`this page and the server run different versions`) replaces it, usually for less than a minute. A
+badge that lasts means the coordinator or part of the edge still runs another version: check
+`wrangler deployments list`. Without the binding, no check is made.
+
 ## Operational configuration
 
 Read with `GET /__wr/admin/v1/state`, change with `PATCH /__wr/admin/v1/config` (partial JSON,

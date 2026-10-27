@@ -71,12 +71,14 @@ export async function handleDashboard(request: Request, url: URL, env: EdgeEnv, 
   const d = await denied(request, env);
   if (d) return d;
   if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method not allowed" }, 405);
-  if (url.pathname !== DASHBOARD_DATA_PATH) return renderDashboardPage(request, DASHBOARD_TEMPLATE);
+  const build = env.CF_VERSION_METADATA?.id ?? "";
+  if (url.pathname !== DASHBOARD_DATA_PATH) return renderDashboardPage(request, DASHBOARD_TEMPLATE, build);
   const r = (await iso.call(env, "admin:dashboard", (stub) => stub.admin({ op: "dashboard" }) as unknown as Promise<AdminResult>, 5000)) as AdminResult | undefined;
   const now = Date.now();
   return dashboardData({
     room: env.ROOM_ID,
     now,
+    build,
     coordinator: r?.ok ? (r.data as DashboardData) : null,
     edge: edgeView(request, iso, now),
   });

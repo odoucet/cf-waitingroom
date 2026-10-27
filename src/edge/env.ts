@@ -20,6 +20,8 @@ export interface EdgeEnv {
   COORDINATOR_TIMEOUT_MS?: string;
   LOCATION_HINT?: string;
   ADMIN_HOSTS?: string;
+  /** Deployment version (version_metadata binding), shown and compared on the dashboard. */
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
   // Secrets
   WR_KEYS?: string;
   WR_KEY_CURRENT?: string;
