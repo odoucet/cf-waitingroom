@@ -140,6 +140,8 @@ This path is not a versioned interface: scripts use `/__wr/admin/v1/`.
 ## Logs
 
 Decision logs are JSON objects (`event`, `level`, `room`, plus fields), indexed by Workers Logs.
+`message` repeats the event and its scalar fields (`admit room=main path=lease`) for the Workers Logs
+event list.
 Sampled (`LOG_SAMPLE_RATE`): `admit`, `bypass`, `waiting`, `session_refused`, `ticket_refused`,
 `bypass_refused`, `pass_refused`, `reserve_refused`. A flood produces them, so they are counted
 exactly by `wr_waiting_pages_total`, `wr_refused_total` and `wr_reserve_refused_total` instead.

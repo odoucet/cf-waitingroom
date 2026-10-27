@@ -4,6 +4,7 @@
 // Nominal decisions are sampled (LOG_SAMPLE_RATE); refusals, errors and
 // administrative actions are always logged.
 
+import { type LogLevel, writeLog } from "../shared/log.js";
 import type { EdgeEnv } from "./env.js";
 
 let rate: number | null = null;
@@ -18,13 +19,8 @@ function sampleRate(env: EdgeEnv): number {
   return rate;
 }
 
-export type LogLevel = "info" | "warn" | "error";
-
 /** Logs a decision. `always` bypasses sampling (refusals, errors, admin). */
 export function logEvent(env: EdgeEnv, level: LogLevel, event: string, fields: Record<string, unknown>, always: boolean): void {
   if (!always && Math.random() >= sampleRate(env)) return;
-  const line = { event, level, room: env.ROOM_ID, ...fields };
-  if (level === "error") console.error(line);
-  else if (level === "warn") console.warn(line);
-  else console.log(line);
+  writeLog(level, event, { room: env.ROOM_ID, ...fields });
 }

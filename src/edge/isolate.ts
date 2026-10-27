@@ -87,7 +87,7 @@ export class Isolate {
         kind = "other";
       }
       this.stats.errors[kind]++;
-      logEvent(env, "error", "coordinator_error", { op, kind, message: String(err?.message ?? e) }, true);
+      logEvent(env, "error", "coordinator_error", { op, kind, error: String(err?.message ?? e) }, true);
       return undefined;
     }
   }

@@ -10,6 +10,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { AdminError, CoordinatorCore, type RequestKind } from "../core/coordinator-core.js";
 import { bootstrapConfig, ConfigError, mergeConfig, DEFAULT_CONFIG } from "../shared/config.js";
+import { writeLog } from "../shared/log.js";
 import { renderPrometheus } from "../shared/prometheus.js";
 import type { AdminOp, AdminResult, Batch, CoordinatorRpc, DashboardData, ReserveOptions, ReserveResult, Snapshot } from "../shared/types.js";
 import { Storage } from "./storage.js";
@@ -67,7 +68,7 @@ export class Coordinator extends DurableObject<CoordinatorEnv> implements Coordi
       // Turnstile without a site key, accepted by older versions, would refuse every reservation.
       if (config.reserveVerifier === "turnstile" && !config.turnstileSiteKey) {
         config.reserveVerifier = "none";
-        console.error({ event: "config_repaired", reason: "reserveVerifier turnstile without turnstileSiteKey: set to none" });
+        writeLog("error", "config_repaired", { reason: "reserveVerifier turnstile without turnstileSiteKey: set to none" });
       }
       const whitelist = Array.isArray(config.whitelist) ? config.whitelist : [];
       stored = { gen: stored.gen, config: mergeConfig({ ...DEFAULT_CONFIG, whitelist }, config) };
@@ -75,7 +76,7 @@ export class Coordinator extends DurableObject<CoordinatorEnv> implements Coordi
     this.core = CoordinatorCore.restore(this.storage.readState(), this.storage.readHwm(), stored.config, stored.gen, now, this.storage.nonces);
     this.lastPersist = now;
     this.persist(now, true);
-    console.log({ event: "coordinator_start", mode: this.core.config.mode, paused: this.core.pause.paused, gen: this.core.gen, nextTicketNo: this.core.ledger.next });
+    writeLog("info", "coordinator_start", { mode: this.core.config.mode, paused: this.core.pause.paused, gen: this.core.gen, nextTicketNo: this.core.ledger.next });
   }
 
   /**
@@ -171,7 +172,7 @@ export class Coordinator extends DurableObject<CoordinatorEnv> implements Coordi
       if (this.core.gen !== genBefore) this.storage.writeConfig({ gen: this.core.gen, config: this.core.config });
       this.persist(now, this.core.gen !== genBefore || this.core.pause.paused !== pausedBefore);
       if (op.op !== "state" && op.op !== "metrics" && op.op !== "dashboard") {
-        console.log({ event: "admin_change", op: op.op, gen: this.core.gen, mode: this.core.config.mode, paused: this.core.pause.paused });
+        writeLog("info", "admin_change", { op: op.op, gen: this.core.gen, mode: this.core.config.mode, paused: this.core.pause.paused });
       }
       if (op.op === "dashboard") return { ok: true, data: { ...(data as DashboardData), build: this.env.CF_VERSION_METADATA?.id ?? "" } };
       return { ok: true, data };

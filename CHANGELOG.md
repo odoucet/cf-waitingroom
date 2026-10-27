@@ -109,6 +109,9 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
   local filesystem instead of creating the catch-all route).
 - Waiting pages and refusals logged with sampling, counted exactly (`wr_refused_total`, new
   `wr_reserve_refused_total` reasons).
+- Log lines carry a `message` summary (`admit room=main path=lease`): Workers Logs showed them
+  empty. Coordinator logs carry `level` too. `coordinator_error` reports the error in `error` instead
+  of `message`.
 - Session total lifetime (`sessionMaxMinutes`, `issuedMinute` in the session cookie).
 - Responses that carry a waiting-room cookie are made private (`Cache-Control: private`).
 - Whitelist blocks wider than `/8` (IPv4) or `/32` (IPv6) refused.

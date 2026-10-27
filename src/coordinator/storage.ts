@@ -12,6 +12,7 @@
 
 import type { HighWater, NonceRecord, NonceStore, PersistedCore } from "../core/coordinator-core.js";
 import { LEDGER_CHUNK, type LedgerChunk, type LedgerData, type LedgerMeta, TicketLedger } from "../core/ledger.js";
+import { writeLog } from "../shared/log.js";
 import type { RoomConfig } from "../shared/types.js";
 
 export interface StoredConfig {
@@ -78,7 +79,7 @@ export class Storage {
 
   private size(key: string, json: string): void {
     this.rowBytes.set(key, json.length);
-    if (json.length > ROW_WARN_BYTES) console.warn({ event: "storage_row_large", key, bytes: json.length });
+    if (json.length > ROW_WARN_BYTES) writeLog("warn", "storage_row_large", { key, bytes: json.length });
   }
 
   private put(k: string, v: unknown): void {
