@@ -127,7 +127,13 @@ export class Isolate {
    * resent unchanged, and the coordinator recognises it by its seq.
    */
   async flush(env: EdgeEnv, ctx: ExecutionContext, urgent: boolean, timeoutMs = BACKGROUND_TIMEOUT_MS): Promise<boolean> {
-    if (this.inflight) return this.inflight;
+    while (this.inflight) {
+      const ok = await this.inflight;
+      // A background flush comes back without a lease when the cap is taken; only an urgent
+      // batch gets the single slot. Without it, the visitor would get the waiting page while
+      // the room is open.
+      if (!urgent || !ok || this.core.hasLease(Date.now()) || !this.core.snapshot?.open) return ok;
+    }
     const p = (async () => {
       const now = Date.now();
       const leaseBefore = { ...this.core.lease };

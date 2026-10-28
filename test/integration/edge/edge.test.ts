@@ -241,6 +241,41 @@ describe("batch delivery", () => {
     expect(reserves.every((b) => b === null)).toBe(true);
   });
 
+  it("refills the lease urgently when the background flush in flight comes back without one", async () => {
+    const real = E.COORDINATOR.get(E.COORDINATOR.idFromName(E.ROOM_ID));
+    const sent: boolean[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let hold = false;
+    const stub = {
+      flush: async (b: { urgent: boolean }) => {
+        sent.push(b.urgent);
+        const s = (await real.flush(b as never)) as unknown as Record<string, unknown>;
+        if (!hold) return s;
+        // The lease cap is taken: a background batch gets no slot.
+        hold = false;
+        await gate;
+        const { lease: _l, ...rest } = s;
+        return rest;
+      },
+      getSnapshot: () => real.getSnapshot(),
+    };
+    const env = { ...E, COORDINATOR: { idFromName: () => ({}), get: () => stub } as unknown as EdgeEnv["COORDINATOR"] };
+    const iso = getIsolate();
+    const ctx = createExecutionContext();
+    await iso.ensureSnapshot(env, ctx);
+    iso.core.lease = { remaining: 0, exp: 0 };
+    hold = true;
+    const background = iso.flush(env, ctx, false, 2000);
+    const urgent = iso.flush(env, ctx, true, 2000);
+    release();
+    expect(await background).toBe(true);
+    expect(await urgent).toBe(true);
+    await waitOnExecutionContext(ctx);
+    expect(sent.slice(1)).toEqual([false, true]); // sent[0] is the cold isolate's first flush
+    expect(iso.core.hasLease(Date.now())).toBe(true);
+  });
+
   it("refuses a provisional cookie older than provisionalWindowSec", async () => {
     const ring = await getKeyRing(E.WR_KEYS, E.WR_KEY_CURRENT);
     const b = new Browser({ "sec-fetch-site": "same-origin" });

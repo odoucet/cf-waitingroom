@@ -126,12 +126,26 @@ describe("CoordinatorCore", () => {
     expect(c.counters.leaseExpired).toBe(l.n);
   });
 
-  it("schedules tickets after outstanding leases", () => {
+  it("schedules tickets after outstanding leases while queueing", () => {
     const c = new CoordinatorCore(cfg(), 1, T);
-    c.grantLease(batch({ seq: 1, leaseWanted: 10 }), T);
+    c.grantLease(batch({ isolateId: "b", seq: 1, leaseWanted: 10 }), T);
     const out = c.outstanding;
+    expect(out).toBe(10);
+    // Another isolate reports 10 slots: cursor 5 s ahead, the room queues.
+    c.applyBatch(batch({ seq: 1, leaseUsed: 10, leaseUsage: [[Math.floor(T / 1000), 10]] }), T);
+    expect(c.isOpen(T)).toBe(false);
     const r = issue(c, "n", T);
-    expect(r.admitAtMs).toBeGreaterThanOrEqual(T - 5000 + out * 1000);
+    expect(r.admitAtMs).toBeGreaterThanOrEqual(T + 5000 + out * 1000);
+  });
+
+  it("does not schedule a ticket reserved while open after the leases", () => {
+    const c = new CoordinatorCore(cfg(), 1, T);
+    c.grantLease(batch({ seq: 1, leaseWanted: 20 }), T);
+    expect(c.outstanding).toBe(20);
+    // A waiting page served while open (urgent refill without a lease): due at once, the room stays open.
+    const r = issue(c, "n", T);
+    expect(r.admitAtMs).toBeLessThanOrEqual(T);
+    expect(c.isOpen(T)).toBe(true);
   });
 
   it("revokes replayed tickets but keeps the first redemption", () => {

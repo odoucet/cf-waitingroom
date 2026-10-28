@@ -599,8 +599,12 @@ export class CoordinatorCore {
       return { refused: "full" };
     }
     const slot = MINUTE_MS / this.rEff;
-    // Leased slots not reported yet may still be consumed: schedule after them.
-    const leased = this.outstanding * (MINUTE_MS / this.leaseRate());
+    // Queueing: leased slots not reported yet may still be consumed, schedule after them.
+    // Open (a waiting page served while the room was open, e.g. an urgent refill that came
+    // back empty): the slots really consumed are enough. Counting the whole lease cap there
+    // would put the ticket up to calmLeaseMaxOutstandingSec ahead, close the room, and every
+    // later reservation would keep it closed.
+    const leased = this.isOpen(now) ? 0 : this.outstanding * (MINUTE_MS / this.leaseRate());
     const floor = this.vnow(now) - this.burstMs();
     const start = Math.max(this.ticketCursor, Math.max(this.leaseBucket(now), floor) + leased, floor);
     const admitAtMs = Math.round(start + slot);

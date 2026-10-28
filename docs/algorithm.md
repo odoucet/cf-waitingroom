@@ -27,7 +27,8 @@ There is no hysteresis and no threshold to tune: open ⇔ `cursor ≤ now` (and 
    slot is consumed: a bot that keeps no cookie never costs anything.
 2. The next request carrying that cookie consumes one slot from the isolate's **lease** and receives a
    session cookie. Without a lease, the isolate refills it with one urgent RPC (with a timeout and the
-   fail mode).
+   fail mode); a background flush already in flight is awaited first, and the urgent RPC still
+   follows when that flush brought no lease (the cap is taken: only urgent batches get a slot).
 3. Leases are blocks of slots granted by the coordinator in the flush answer. Size: the claim rate
    observed by the isolate projected over the lease lifetime, with 50 % headroom, capped by
    `leaseBlockMax`, by a fair share (twice `cap / active isolates`) and by a global cap on all outstanding
@@ -56,6 +57,11 @@ provisional cookie. Once the cookie is `reserveMinAgeSec` old, the page's JavaSc
 admitAt = max(ticket cursor, lease bucket + outstanding leases, now − burstSec) + 60 / R_eff
 ticket cursor = admitAt
 ```
+
+The outstanding leases only count while the room queues. A reservation made while it is open (a
+waiting page served when an urgent refill came back empty) is placed after the slots really consumed:
+counting the whole lease cap there would put it up to `calmLeaseMaxOutstandingSec` ahead, close the
+room, and every reservation that follows would keep it closed (`test/sim/stray-reserve.test.ts`).
 
 The edge signs a **ticket** `{ticketNo, admitAt, issuedAt}` and the page shows an exact countdown,
 reloading at `admitAt` plus up to 2 s of jitter (and on `visibilitychange`, because hidden tabs throttle
@@ -203,3 +209,4 @@ coordinator restarts and pauses. Scenarios (figures anonymised from an e-commerc
 | Lease bound: flash crowd on a calm room | overshoot ≤ outstanding cap + burst, back to `R` within two minutes |
 | Replay: one ticket presented 100 times on 20 isolates | one admission counted; one session alive after one TTL |
 | Restart while queueing / while paused | no ticket number or slot re-issued; mode and pause kept; rate stays at `R` |
+| Stray reservation: one ticket reserved in a calm room (25 % of `R`), with or without a restart before | the ticket is due at once; no other reservation, no waiting page, the room stays open |
