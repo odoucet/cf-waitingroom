@@ -53,6 +53,25 @@ describe("CoordinatorCore", () => {
     expect(c.counters.reserved).toBe(1);
   });
 
+  it("counts the wait handed out by each reservation in a histogram", () => {
+    const c = new CoordinatorCore(cfg(), 1, T);
+    for (let i = 0; i < 12; i++) issue(c, `w${i}`, T);
+    // The same nonce again: same ticket, no second sample.
+    issue(c, "w11", T + 10);
+    // Slots of 1 s from T - 4 s: waits 0, 0, 0, 0, 0, 1, 2, ..., 7 s.
+    const h = c.metrics(T).histograms.find((x) => x.name === "wr_reserve_wait_seconds")!;
+    expect(h.counts.reduce((a, b) => a + b, 0)).toBe(12);
+    expect(h.counts.slice(0, 3)).toEqual([6, 4, 2]);
+    expect(h.sum).toBe(28);
+    // Kept across a restart; a state without the histogram starts it again.
+    const p = structuredClone(c.toPersisted(T));
+    expect(CoordinatorCore.restore(p, null, c.config, c.gen, T).counters.waitSum).toBe(28);
+    const { waitCounts: _w, waitSum: _s, ...old } = p.counters;
+    const r = CoordinatorCore.restore({ ...p, counters: old as typeof p.counters }, null, c.config, c.gen, T);
+    expect(r.counters.waitCounts).toHaveLength(12);
+    expect(r.counters.waitSum).toBe(0);
+  });
+
   it("closes when reported usage exceeds R plus the bucket, and reopens as time passes", () => {
     const c = new CoordinatorCore(cfg(), 1, T);
     const sec = Math.floor(T / 1000);

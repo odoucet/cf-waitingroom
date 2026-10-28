@@ -52,7 +52,7 @@ The dashboard uid is `cf-waitingroom`: importing a newer version of the file rep
 | Row | Panels |
 |---|---|
 | Now | mode, paused, open or queueing, current wait, waiting visitors, utilisation, active users, fail-open over 5 minutes; rate `R` and effective rate, absence ratio, brake factor, isolates, configuration generation, projected monthly cost, version |
-| Admissions and queue | admissions per minute by path against `R` and the effective rate; waiting visitors and wait; tickets reserved, redeemed and absent; waiting pages; utilisation, absence ratio and brake; active users; provisional cookies issued and claimed |
+| Admissions and queue | admissions per minute by path against `R` and the effective rate; waiting visitors and wait; wait handed out by the reservations (median, 95th percentile, average) against the wait of a visitor arriving now; tickets reserved, redeemed and absent; waiting pages; utilisation, absence ratio and brake; active users; provisional cookies issued and claimed |
 | Whitelist, bots and refusals | bypasses by kind, reservations refused by reason, tokens refused and replays |
 | Health | coordinator errors and fail-open; configuration propagation (coordinator generation and edge minimum); isolates and outstanding leases; largest SQLite row (red above 1 MB) and ledger size; edge batch duplicates and gaps; lease slots by state |
 | Cloudflare usage and cost | coordinator requests per second by kind (red at the ≈ 1,000 req/s soft limit), SQLite rows written, monthly projection of usage and cost (Worker requests included), Worker requests per minute and the early-exit share |

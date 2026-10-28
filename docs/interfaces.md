@@ -91,6 +91,7 @@ edge-side counters arrive with the flushes (up to five minutes late).
 | `wr_admission_rate_target` | gauge | | `R` |
 | `wr_admission_rate_effective` | gauge | | `R_eff` (overbooking and brake) |
 | `wr_cursor_lag_seconds` | gauge | | cursor − now; positive while visitors wait. While paused, cursor − start of the pause: the wait once admissions resume |
+| `wr_reserve_wait_seconds` | histogram | `le` (1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200 s) | wait handed out by each reservation: `admitAt` − now (the pause excluded), once per ticket |
 | `wr_waiting_tickets` | gauge | | tickets reserved and not yet due (waiting visitors) |
 | `wr_absence_ratio` | gauge | | no-show ratio over the sliding window |
 | `wr_active_users_estimate` | gauge | | sessions seen within `D` (plus whitelisted if counted) |

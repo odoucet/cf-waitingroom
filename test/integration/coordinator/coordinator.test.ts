@@ -219,6 +219,9 @@ describe("coordinator durable object", () => {
     const text = await stubFor("metrics-text").prometheus("main");
     expect(text).toContain('wr_admission_rate_target{room="main"} 60');
     expect(text).toContain("# TYPE wr_tickets_reserved_total counter");
+    expect(text).toContain("# TYPE wr_reserve_wait_seconds histogram");
+    expect(text).toContain('wr_reserve_wait_seconds_bucket{room="main",le="+Inf"} 0');
+    expect(text).toContain('wr_reserve_wait_seconds_count{room="main"} 0');
     // The room label is escaped: no injected sample line.
     expect(await stubFor("metrics-text").prometheus('x"} 1\nevil')).toContain('room="x\\"} 1\\nevil"');
   });

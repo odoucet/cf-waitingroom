@@ -47,6 +47,7 @@ const HELP: Record<string, string> = {
   wr_reserve_refused_total: "Reservations refused, by reason.",
   wr_refused_total: "Session, ticket, signed link or bypass header refused (invalid, expired, revoked), by kind.",
   wr_cost_projection_usd: "Projected monthly cost beyond the included usage (Durable Object, Worker requests), from the last hour.",
+  wr_reserve_wait_seconds: "Wait handed out by each reservation (admitAt minus now; the pause excluded).",
   wr_usage_projection: "Projected monthly usage (Durable Object, Worker requests), from the last hour.",
 };
 
@@ -81,6 +82,16 @@ export function renderPrometheus(m: CoordinatorMetrics, room: string): string {
     head(l.name, l.type);
     const labels = Object.entries(l.labels).map(([k, v]) => `${k}="${esc(v)}"`);
     out.push(`${l.name}{${[r, ...labels].join(",")}} ${fmt(l.value)}`);
+  }
+  for (const h of m.histograms) {
+    head(h.name, "histogram");
+    let n = 0;
+    h.bounds.forEach((b, i) => {
+      n += h.counts[i] ?? 0;
+      out.push(`${h.name}_bucket{${r},le="${fmt(b)}"} ${n}`);
+    });
+    n += h.counts[h.bounds.length] ?? 0;
+    out.push(`${h.name}_bucket{${r},le="+Inf"} ${n}`, `${h.name}_sum{${r}} ${fmt(h.sum)}`, `${h.name}_count{${r}} ${n}`);
   }
   return `${out.join("\n")}\n`;
 }

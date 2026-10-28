@@ -47,6 +47,8 @@ const REVOKED_MAX = 20_000;
 export const RESTART_LEASE = "__restart__";
 /** Lease usage older than this is forgotten (reports never lag that much). */
 const USAGE_WINDOW_MS = 5 * MINUTE_MS;
+/** Upper bounds (seconds) of the buckets of wr_reserve_wait_seconds. */
+export const WAIT_BUCKETS = [1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200];
 
 /** What a nonce obtained: the same nonce always gets the same ticket. */
 export interface NonceRecord {
@@ -122,6 +124,10 @@ export interface CoreCounters {
   batchGaps: number;
   /** Reservations refused because the queue reached maxWaitingTickets. */
   reserveFull: number;
+  /** Wait handed out by the reservations, per bucket of WAIT_BUCKETS (the last one is +Inf). */
+  waitCounts: number[];
+  /** Sum of the waits handed out, in seconds. */
+  waitSum: number;
   edge: EdgeCounters;
   /** requests[kind][mode] */
   requests: Record<string, Record<string, number>>;
@@ -173,6 +179,8 @@ function zeroCounters(): CoreCounters {
     batchDuplicates: 0,
     batchGaps: 0,
     reserveFull: 0,
+    waitCounts: new Array<number>(WAIT_BUCKETS.length + 1).fill(0),
+    waitSum: 0,
     edge: zeroEdgeCounters(),
     requests: {},
   };
@@ -601,9 +609,19 @@ export class CoordinatorCore {
     const ticketNo = this.ledger.issue(admitAtMs, this.absenceRatio);
     this.nonces.set(nonce, { ticketNo, admitAtMs, issuedSec: issued });
     this.counters.reserved++;
+    this.recordWait(Math.max(0, admitAtMs - this.vnow(now)) / 1000);
     this.history.add(now, "reserved");
     this.updateHwm();
     return { ticketNo, admitAtMs };
+  }
+
+  /** Wait handed out by a reservation (the pause excluded, like the cursor lag). */
+  private recordWait(sec: number): void {
+    const c = this.counters;
+    const i = WAIT_BUCKETS.findIndex((b) => sec <= b);
+    const k = i < 0 ? WAIT_BUCKETS.length : i;
+    c.waitCounts[k] = (c.waitCounts[k] ?? 0) + 1;
+    c.waitSum += sec;
   }
 
   /**
@@ -901,6 +919,7 @@ export class CoordinatorCore {
         wr_batch_gaps_total: c.batchGaps,
       },
       labelled,
+      histograms: [{ name: "wr_reserve_wait_seconds", bounds: WAIT_BUCKETS, counts: c.waitCounts, sum: c.waitSum }],
     };
   }
 
@@ -960,6 +979,11 @@ export class CoordinatorCore {
       core.lastBrakeAt = p.lastBrakeAt;
       core.absenceRatio = p.absenceRatio;
       core.counters = { ...zeroCounters(), ...p.counters, edge: { ...zeroEdgeCounters(), ...p.counters.edge } };
+      // Older states, or other buckets: the histogram starts again (a counter reset for Prometheus).
+      if (core.counters.waitCounts.length !== WAIT_BUCKETS.length + 1) {
+        core.counters.waitCounts = zeroCounters().waitCounts;
+        core.counters.waitSum = 0;
+      }
       // The object restarts after every quiet period (between two scrapes, say): a floor re-armed
       // by each restart would freeze the estimate, so a higher floor still running is kept as is.
       const fresh = { value: p.activesEstimate, until: p.at + config.sessionMinutes * MINUTE_MS };

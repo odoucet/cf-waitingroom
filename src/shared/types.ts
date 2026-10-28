@@ -229,6 +229,8 @@ export interface CoordinatorMetrics {
   gauges: Record<string, number>;
   counters: Record<string, number>;
   labelled: { name: string; labels: Record<string, string>; value: number; type: "gauge" | "counter" }[];
+  /** `counts` per bucket (not cumulative), one more than `bounds`: the last one is +Inf. */
+  histograms: { name: string; bounds: number[]; counts: number[]; sum: number }[];
 }
 
 /** Data behind the dashboards (admin op "dashboard"). Not a stable interface. */

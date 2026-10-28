@@ -1375,6 +1375,124 @@
     },
     {
       "type": "timeseries",
+      "title": "Wait handed out",
+      "description": "Wait given to the visitors who reserved a place over the last 2 minutes (admitAt minus now, from wr_reserve_wait_seconds): median, 95th percentile and average. Gaps: nobody reserved. Dashed: the wait of a visitor arriving now (cursor lag), sampled at each scrape, so short waits between two scrapes do not show there. Percentiles are interpolated within the buckets (1, 5, 10, 30 s...): a wait of zero reads up to 0.5 s.",
+      "id": 41,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(wr_reserve_wait_seconds_bucket{room=~\"$room\"}[2m])))",
+          "legendFormat": "median",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(wr_reserve_wait_seconds_bucket{room=~\"$room\"}[2m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(wr_reserve_wait_seconds_sum{room=~\"$room\"}[2m])) / sum(rate(wr_reserve_wait_seconds_count{room=~\"$room\"}[2m]))",
+          "legendFormat": "average",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "clamp_min(max(wr_cursor_lag_seconds{room=~\"$room\"}), 0)",
+          "legendFormat": "wait now",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "wait now"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "max",
+            "mean",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
       "title": "Tickets per minute",
       "description": "Reserved: places handed out. Redeemed: exchanged for a session. Absent: never used (no-shows).",
       "id": 20,
@@ -1386,7 +1504,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "targets": [
         {
@@ -1463,7 +1581,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 18
+        "y": 26
       },
       "targets": [
         {
@@ -1522,7 +1640,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 18
+        "y": 26
       },
       "targets": [
         {
@@ -1599,7 +1717,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 34
       },
       "targets": [
         {
@@ -1667,7 +1785,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 34
       },
       "targets": [
         {
@@ -1722,7 +1840,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "panels": []
     },
@@ -1739,7 +1857,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "targets": [
         {
@@ -1798,7 +1916,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 35
+        "y": 43
       },
       "targets": [
         {
@@ -1857,7 +1975,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 35
+        "y": 43
       },
       "targets": [
         {
@@ -1921,7 +2039,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "panels": []
     },
@@ -1938,7 +2056,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "targets": [
         {
@@ -2006,7 +2124,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 44
+        "y": 52
       },
       "targets": [
         {
@@ -2074,7 +2192,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 44
+        "y": 52
       },
       "targets": [
         {
@@ -2142,7 +2260,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "targets": [
         {
@@ -2243,7 +2361,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 52
+        "y": 60
       },
       "targets": [
         {
@@ -2311,7 +2429,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 52
+        "y": 60
       },
       "targets": [
         {
@@ -2366,7 +2484,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 68
       },
       "panels": []
     },
@@ -2383,7 +2501,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 61
+        "y": 69
       },
       "targets": [
         {
@@ -2458,7 +2576,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 61
+        "y": 69
       },
       "targets": [
         {
@@ -2517,7 +2635,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 61
+        "y": 69
       },
       "targets": [
         {
@@ -2602,7 +2720,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "targets": [
         {

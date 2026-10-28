@@ -19,6 +19,9 @@ API and the metric names ([docs/interfaces.md](docs/interfaces.md)).
 - Whitelist: IP/CIDR, verified bots (Transform Rules), secret header, signed links.
 - `routes.sh` manages the IP whitelist from the config file (`WHITELIST`, `WHITELIST_PRUNE`).
 - Admin API v1, Prometheus metrics, cost projection.
+- `wr_reserve_wait_seconds`: histogram of the wait handed out by each reservation, and a full-width
+  Grafana panel (median, 95th percentile, average): unlike the cursor lag sampled at each scrape, it
+  keeps short queueing episodes.
 - Worker requests counted by the isolates and sent with their batches, without any extra Durable
   Object request: `wr_worker_requests_total`, `wr_early_exits_total`,
   `wr_usage_projection{item="worker_requests"}` and its cost, a chart and a projection row on the
