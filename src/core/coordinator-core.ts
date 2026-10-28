@@ -139,7 +139,10 @@ export interface PersistedCore {
   pause: { since: number | null; offsets: [number, number][] };
   actives: [number, number][];
   wl: [number, number][];
+  /** Counted active users at `at`, without the restart floor (older states: with it). */
   activesEstimate: number;
+  /** Restart floor running at `at` (absent from older states). */
+  floor?: { value: number; until: number };
   rEff: number;
   brakeFactor: number;
   lastBrakeAt: number;
@@ -330,6 +333,12 @@ export class CoordinatorCore {
     return this.config.sessionMinutes * MINUTE_MS;
   }
 
+  /** Active users from the minute counters alone, without the restart floor. */
+  private countedActives(nowMin: number): number {
+    const c = this.config;
+    return this.actives.estimate(nowMin, c.sessionMinutes) + (c.countWhitelisted ? this.wl.estimate(nowMin, c.sessionMinutes) : 0);
+  }
+
   // -------------------------------------------------------------------------
   // Periodic recomputation (run on every RPC; there is no alarm)
 
@@ -394,9 +403,8 @@ export class CoordinatorCore {
     const nowMin = minuteOf(now);
     this.actives.prune(nowMin, c.sessionMinutes);
     this.wl.prune(nowMin, c.sessionMinutes);
-    let est = this.actives.estimate(nowMin, c.sessionMinutes) + (c.countWhitelisted ? this.wl.estimate(nowMin, c.sessionMinutes) : 0);
-    if (this.floor.until > now) est = Math.max(est, this.floor.value);
-    this.activesEstimate = est;
+    const est = this.countedActives(nowMin);
+    this.activesEstimate = this.floor.until > now ? Math.max(est, this.floor.value) : est;
     if (this.lastBrakeAt === 0 || now - this.lastBrakeAt >= MINUTE_MS) this.updateBrake(now);
 
     const R = c.admissionsPerMinute;
@@ -912,7 +920,8 @@ export class CoordinatorCore {
       pause: { since: this.pause.since, offsets: this.pause.offsets },
       actives: this.actives.entries(),
       wl: this.wl.entries(),
-      activesEstimate: this.activesEstimate,
+      activesEstimate: this.countedActives(minuteOf(now)),
+      floor: { ...this.floor },
       rEff: this.rEff,
       brakeFactor: this.brakeFactor,
       lastBrakeAt: this.lastBrakeAt,
@@ -929,7 +938,8 @@ export class CoordinatorCore {
    * Rebuilds the coordinator after a restart. Conservative: the cursor and the
    * ticket numbers resume from the high-water marks (never re-issued), mode and
    * pause are kept, and the active-user estimate cannot drop below the last
-   * persisted value until a full session window has elapsed.
+   * persisted value until a full session window has elapsed. That floor is
+   * carried, never extended, by later restarts.
    */
   static restore(p: PersistedCore | null, hwm: HighWater | null, config: RoomConfig, gen: number, now: number, nonces?: NonceStore): CoordinatorCore {
     const core = new CoordinatorCore(config, gen, now, nonces);
@@ -950,7 +960,10 @@ export class CoordinatorCore {
       core.lastBrakeAt = p.lastBrakeAt;
       core.absenceRatio = p.absenceRatio;
       core.counters = { ...zeroCounters(), ...p.counters, edge: { ...zeroEdgeCounters(), ...p.counters.edge } };
-      core.floor = { value: p.activesEstimate, until: p.at + config.sessionMinutes * MINUTE_MS };
+      // The object restarts after every quiet period (between two scrapes, say): a floor re-armed
+      // by each restart would freeze the estimate, so a higher floor still running is kept as is.
+      const fresh = { value: p.activesEstimate, until: p.at + config.sessionMinutes * MINUTE_MS };
+      core.floor = p.floor && p.floor.until > now && p.floor.value > fresh.value ? { ...p.floor } : fresh;
       core.activesEstimate = p.activesEstimate;
       core.history = new MinuteHistory(p.history ?? []);
       // Batch numbers come back with the state they produced: a batch applied after this state

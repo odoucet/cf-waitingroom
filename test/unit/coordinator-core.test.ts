@@ -232,6 +232,18 @@ describe("CoordinatorCore", () => {
     expect(r.floor.until).toBe(T + 10 * 60_000);
   });
 
+  it("lets the active-user estimate decay when every scrape restarts the coordinator", () => {
+    let c = new CoordinatorCore(cfg(), 1, T);
+    c.applyBatch(batch({ seq: 1, activeDeltas: [[Math.floor(T / 60000), 550]] }), T);
+    c.tick(T);
+    // No traffic: the object hibernates, and each 30 s scrape restores it from the last write.
+    for (let t = T + 30_000; t <= T + 30 * 60_000; t += 30_000) {
+      c = CoordinatorCore.restore(structuredClone(c.toPersisted(t - 30_000)), { ...c.hwm }, c.config, c.gen, t);
+      if (t < T + 10 * 60_000) expect(c.activesEstimate).toBe(550);
+    }
+    expect(c.activesEstimate).toBe(0);
+  });
+
   it("projects the monthly cost from the last hour", () => {
     const c = new CoordinatorCore(cfg(), 1, T);
     for (let i = 0; i < 60; i++) c.recordRequest("flush", T + i * 1000);

@@ -162,7 +162,8 @@ resend is applied again; numbers skipped that way are counted (`wr_batch_gaps_to
   coordinator resumes from them: no slot and no ticket number is ever handed out twice, at the cost of
   at most 10 s of skipped slots.
 - Mode and pause are kept. The active-user estimate cannot drop below the last persisted value until a
-  full session window has elapsed.
+  full session window has elapsed. That floor is persisted and carried, never extended, by the
+  following restarts: re-arming it on each restart would freeze the estimate through a quiet period.
 - Leases and replay revocations are persisted with the state (a revocation forces an immediate
   write): a revoked session stays revoked across a restart. Leases granted after the last persisted
   state are unknown, so after a restart the rest of the lease cap counts as outstanding until the
