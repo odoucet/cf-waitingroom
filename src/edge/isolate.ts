@@ -11,6 +11,26 @@ import type { EdgeEnv } from "./env.js";
 import { logEvent } from "./log.js";
 
 const BACKGROUND_TIMEOUT_MS = 5000;
+/** Interval at which a request checks an operation started by another request. */
+const POLL_MS = 10;
+/** Past its budget plus this margin, an operation is presumed abandoned (its request was cancelled). */
+const ABANDON_MARGIN_MS = 1000;
+
+/**
+ * A coordinator operation shared by the requests of an isolate. Its promise may
+ * only be awaited by the request that created it: with
+ * handle_cross_request_promise_resolution, a promise settles only in its own
+ * request, and one whose request ended (client gone, cancelled) never settles.
+ * Other requests poll `result` instead, until `deadline`.
+ */
+interface Pending {
+  readonly ctx: ExecutionContext;
+  readonly deadline: number;
+  p: Promise<boolean>;
+  result: boolean | undefined;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 class TimeoutError extends Error {}
 
@@ -31,7 +51,10 @@ function cacheKey(room: string): string {
 export class Isolate {
   readonly core: EdgeCore;
   private coordinatorId: DurableObjectId | null = null;
-  private inflight: Promise<boolean> | null = null;
+  /** The flush in progress (at most one per isolate). */
+  private inflight: Pending | null = null;
+  /** The snapshot refresh in progress. */
+  private refreshing: Pending | null = null;
   /** Reservation calls to the coordinator in progress (capped by reserveMaxInflight). */
   reserveInflight = 0;
   /** An invalid FAIL_MODE is logged once per isolate. */
@@ -127,17 +150,17 @@ export class Isolate {
    * resent unchanged, and the coordinator recognises it by its seq.
    */
   async flush(env: EdgeEnv, ctx: ExecutionContext, urgent: boolean, timeoutMs = BACKGROUND_TIMEOUT_MS): Promise<boolean> {
-    while (this.inflight) {
-      const ok = await this.inflight;
+    for (let op = this.live("inflight"); op; op = this.live("inflight")) {
+      const ok = await this.wait(op, ctx);
+      if (ok === undefined) continue; // abandoned: live() drops it
       // A background flush comes back without a lease when the cap is taken; only an urgent
       // batch gets the single slot. Without it, the visitor would get the waiting page while
       // the room is open.
       if (!urgent || !ok || this.core.hasLease(Date.now()) || !this.core.snapshot?.open) return ok;
     }
-    const p = (async () => {
-      const now = Date.now();
+    const op = this.start("inflight", ctx, timeoutMs, async () => {
       const leaseBefore = { ...this.core.lease };
-      const b = this.core.takeBatch(now, urgent);
+      const b = this.core.takeBatch(Date.now(), urgent);
       const s = await this.call(env, "flush", (stub) => stub.flush(b) as unknown as Promise<Snapshot>, timeoutMs);
       if (!s) {
         this.core.batchFailed(leaseBefore, Date.now());
@@ -147,13 +170,43 @@ export class Isolate {
       this.core.applySnapshot(s, Date.now());
       ctx.waitUntil(this.cachePut(env, s));
       return true;
-    })();
-    this.inflight = p;
-    try {
-      return await p;
-    } finally {
-      this.inflight = null;
+    });
+    return op.p;
+  }
+
+  /** Starts a shared operation owned by the current request. */
+  private start(slot: "inflight" | "refreshing", ctx: ExecutionContext, budgetMs: number, f: () => Promise<boolean>): Pending {
+    const op: Pending = { ctx, deadline: Date.now() + budgetMs + ABANDON_MARGIN_MS, p: Promise.resolve(false), result: undefined };
+    this[slot] = op;
+    op.p = f()
+      .catch(() => false)
+      .then((ok) => {
+        op.result = ok;
+        if (this[slot] === op) this[slot] = null;
+        return ok;
+      });
+    return op;
+  }
+
+  /** The operation in a slot, unless it is past its deadline: then it is dropped as abandoned. */
+  private live(slot: "inflight" | "refreshing"): Pending | null {
+    const op = this[slot];
+    if (op && op.result === undefined && Date.now() > op.deadline) {
+      this[slot] = null;
+      return null;
     }
+    return op;
+  }
+
+  /**
+   * Waits for a shared operation. The owner request awaits its promise; any
+   * other request polls (never awaiting a promise from another request).
+   * Resolves to undefined when the operation was abandoned.
+   */
+  private async wait(op: Pending, ctx: ExecutionContext): Promise<boolean | undefined> {
+    if (op.ctx === ctx) return op.p;
+    while (op.result === undefined && Date.now() <= op.deadline) await sleep(POLL_MS);
+    return op.result;
   }
 
   /**
@@ -181,16 +234,17 @@ export class Isolate {
     return true;
   }
 
-  private refreshing: Promise<boolean> | null = null;
-
-  private refreshOnce(env: EdgeEnv, ctx: ExecutionContext, timeoutMs: number): Promise<boolean> {
-    if (this.inflight) return this.inflight;
-    if (!this.refreshing) {
-      this.refreshing = this.refresh(env, ctx, timeoutMs).finally(() => {
-        this.refreshing = null;
-      });
+  /** Joins the flush or refresh in progress, or starts a refresh owned by this request. */
+  private async refreshOnce(env: EdgeEnv, ctx: ExecutionContext, timeoutMs: number): Promise<boolean> {
+    for (;;) {
+      const op =
+        this.live("inflight") ??
+        this.live("refreshing") ??
+        // flush, then cache, then getSnapshot: two coordinator calls at most.
+        this.start("refreshing", ctx, 2 * timeoutMs, () => this.refresh(env, ctx, timeoutMs));
+      const ok = await this.wait(op, ctx);
+      if (ok !== undefined) return ok;
     }
-    return this.refreshing;
   }
 
   /**
@@ -201,7 +255,9 @@ export class Isolate {
     const now = Date.now();
     if (this.core.isFresh(now)) return true;
     if (this.core.isUsable(now)) {
-      ctx.waitUntil(this.refreshOnce(env, ctx, BACKGROUND_TIMEOUT_MS));
+      if (!this.live("inflight") && !this.live("refreshing")) {
+        ctx.waitUntil(this.start("refreshing", ctx, 2 * BACKGROUND_TIMEOUT_MS, () => this.refresh(env, ctx, BACKGROUND_TIMEOUT_MS)).p);
+      }
       return true;
     }
     await this.refreshOnce(env, ctx, this.timeoutMs(env));
@@ -210,7 +266,7 @@ export class Isolate {
 
   /** Schedules a background flush when the flush policy says so. */
   maybeFlush(env: EdgeEnv, ctx: ExecutionContext): void {
-    if (!this.inflight && this.core.shouldFlush(Date.now())) ctx.waitUntil(this.flush(env, ctx, false));
+    if (!this.live("inflight") && this.core.shouldFlush(Date.now())) ctx.waitUntil(this.flush(env, ctx, false));
   }
 
   /**

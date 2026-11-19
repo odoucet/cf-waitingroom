@@ -276,6 +276,36 @@ describe("batch delivery", () => {
     expect(iso.core.hasLease(Date.now())).toBe(true);
   });
 
+  it("lets a request join another request's refresh without awaiting its promise", async () => {
+    const real = E.COORDINATOR.get(E.COORDINATOR.idFromName(E.ROOM_ID));
+    let calls = 0;
+    const stub = {
+      flush: async (b: never) => (calls++, real.flush(b)),
+      getSnapshot: async () => (calls++, real.getSnapshot()),
+    };
+    const env = { ...E, COORDINATOR: { idFromName: () => ({}), get: () => stub } as unknown as EdgeEnv["COORDINATOR"] };
+    const iso = getIsolate();
+    const a = createExecutionContext();
+    const b = createExecutionContext();
+    const [ra, rb] = await Promise.all([iso.ensureSnapshot(env, a), iso.ensureSnapshot(env, b)]);
+    expect([ra, rb]).toEqual([true, true]);
+    expect(calls).toBe(1); // b polled a's flush instead of calling the coordinator itself
+    await waitOnExecutionContext(a);
+    await waitOnExecutionContext(b);
+  });
+
+  it("takes over a flush whose request never finished", async () => {
+    const iso = getIsolate();
+    const ctx = createExecutionContext();
+    await iso.ensureSnapshot(E, ctx);
+    // A flush from a cancelled request: its promise never settles and the slot is never released.
+    const abandoned = { ctx: createExecutionContext(), deadline: Date.now() + 50, p: new Promise(() => {}), result: undefined };
+    (iso as unknown as { inflight: unknown }).inflight = abandoned;
+    expect(await iso.flush(E, ctx, false, 2000)).toBe(true);
+    expect((iso as unknown as { inflight: unknown }).inflight).toBeNull();
+    await waitOnExecutionContext(ctx);
+  });
+
   it("refuses a provisional cookie older than provisionalWindowSec", async () => {
     const ring = await getKeyRing(E.WR_KEYS, E.WR_KEY_CURRENT);
     const b = new Browser({ "sec-fetch-site": "same-origin" });
